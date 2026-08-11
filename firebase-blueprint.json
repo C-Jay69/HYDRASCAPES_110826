@@ -1,0 +1,35 @@
+{
+  "entities": {
+    "properties": {
+      "title": "Properties",
+      "description": "Co-hosting marketplace properties",
+      "fields": {
+        "title": { "type": "string", "description": "Property title" },
+        "owner_id": { "type": "string", "description": "Property owner profile ID" },
+        "base_price_minor": { "type": "number", "description": "Base price per night in minor currency units" },
+        "status": { "type": "string", "description": "Property status" }
+      }
+    },
+    "bookings": {
+      "title": "Bookings",
+      "description": "Guest trip reservations",
+      "fields": {
+        "property_id": { "type": "string", "description": "Property ID" },
+        "guest_id": { "type": "string", "description": "Guest profile ID" },
+        "checkin": { "type": "string", "description": "Check-in date" },
+        "checkout": { "type": "string", "description": "Check-out date" },
+        "total_amount_minor": { "type": "number", "description": "Total stay cost in cents" }
+      }
+    },
+    "disputes": {
+      "title": "Disputes",
+      "description": "Property inspection disputes and frozen escrow",
+      "fields": {
+        "booking_id": { "type": "string", "description": "Booking ID" },
+        "claimant_id": { "type": "string", "description": "Claimant ID" },
+        "status": { "type": "string", "description": "Dispute status" },
+        "amount_claimed_minor": { "type": "number", "description": "Amount claimed in cents" }
+      }
+    }
+  }
+}
