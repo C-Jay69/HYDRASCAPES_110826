@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/app/lib/supabase/client';
+import { GoogleIcon } from '@/app/components/icons/google';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -10,6 +11,7 @@ export default function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,8 +34,43 @@ export default function LoginForm() {
     router.refresh();
   }
 
+  async function handleGoogleSignIn() {
+    setError(null);
+    setOauthLoading(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+      },
+    });
+    if (error) {
+      setError(error.message);
+      setOauthLoading(false);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+      <button
+        type="button"
+        onClick={handleGoogleSignIn}
+        disabled={oauthLoading}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-divider bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+      >
+        <GoogleIcon className="h-4 w-4" />
+        {oauthLoading ? 'Redirecting…' : 'Sign in with Google'}
+      </button>
+
+      <div className="relative my-4">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-divider"></div>
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-card px-2 text-foreground-muted">Or continue with</span>
+        </div>
+      </div>
+
       <div>
         <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
           Email
