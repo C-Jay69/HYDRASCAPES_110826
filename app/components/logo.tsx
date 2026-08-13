@@ -7,7 +7,7 @@ export function Logo({ className = 'h-8 w-auto' }: { className?: string }) {
       alt="Hydrascapes"
       width={1664}
       height={928}
-      className={className}
+      className={`${className} rounded-lg`}
       priority
     />
   );
