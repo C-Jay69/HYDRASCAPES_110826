@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+
+:root {
+  --void: #0b0f14;
+  --surface: #141b24;
+  --card: #1c242f;
+  --divider: #2a3441;
+
+  --ember-500: #ff7a45;
+  --ember-300: #ffb067;
+
+  --teal-500: #14b8a6;
+  --teal-300: #5eead4;
+
+  --gold-500: #f5b841;
+
+  --foreground: #f5f7fa;
+  --foreground-muted: #b4bcc8;
+  --foreground-faint: #7a8494;
+
+  --success: #22c55e;
+  --warning: #f5b841;
+  --danger: #ef4444;
+}
+
+@theme inline {
+  --color-void: var(--void);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-divider: var(--divider);
+  --color-ember-500: var(--ember-500);
+  --color-ember-300: var(--ember-300);
+  --color-teal-500: var(--teal-500);
+  --color-teal-300: var(--teal-300);
+  --color-gold-500: var(--gold-500);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-faint: var(--foreground-faint);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--void);
+  color: var(--foreground);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--teal-500);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
