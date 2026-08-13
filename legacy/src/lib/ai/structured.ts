@@ -24,7 +24,7 @@ export async function aiJson<T>(
       model: modelName,
       contents: contentsParts.length === 1 ? prompt : { parts: contentsParts },
       config: {
-        systemInstruction: systemInstruction || "You are an expert AI evaluator for Nest co-hosting marketplace. Return strict valid JSON.",
+        systemInstruction: systemInstruction || "You are an expert AI evaluator for Hydrascapes co-hosting marketplace. Return strict valid JSON.",
         responseMimeType: "application/json",
       },
     });

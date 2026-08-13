@@ -1,4 +1,4 @@
-# Nest Marketplace External Infrastructure Costs Documentation
+# Hydrascapes Marketplace External Infrastructure Costs Documentation
 
 Last Verified: August 2026
 

@@ -7,7 +7,7 @@ export async function analyzePropertyVision(
   description: string,
   photos: string[]
 ): Promise<VisionAnalysis> {
-  const prompt = `Analyze this property listing photos and details for Nest Co-hosting Marketplace.
+  const prompt = `Analyze this property listing photos and details for Hydrascapes Co-hosting Marketplace.
 Title: "${title}"
 Description: "${description}"
 Photos count: ${photos.length}

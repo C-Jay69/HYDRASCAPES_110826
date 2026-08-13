@@ -69,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-[#F5F7FA]">NEST</span>
+              <span className="text-xl font-bold tracking-tight text-[#F5F7FA]">HYDRASCAPES</span>
               <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wider bg-[#FF7A45]/15 text-[#FFB067] border border-[#FF7A45]/30 rounded-full uppercase">
                 Co-Hosting Marketplace
               </span>

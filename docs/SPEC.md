@@ -1,7 +1,7 @@
-# Nest Build Specification v5 (Authoritative Build Spec)
+# Hydrascapes Build Specification v5 (Authoritative Build Spec)
 
 ## Architecture Overview
-Nest is a co-hosting marketplace connecting Property Owners, Co-Hosts, Guests, and Admins.
+Hydrascapes is a co-hosting marketplace connecting Property Owners, Co-Hosts, Guests, and Admins.
 Built on Next.js / React + TypeScript + Express Server + Gemini AI + Stripe Connect + n8n automation.
 
 ### Non-Negotiable Architectural Invariants

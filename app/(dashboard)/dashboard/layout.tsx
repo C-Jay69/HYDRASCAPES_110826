@@ -4,6 +4,7 @@ import { getUser } from '@/app/lib/auth';
 import { createClient } from '@/app/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import type { UserRole } from '@/app/lib/types';
+import { Logo } from '@/app/components/logo';
 
 const NAV: Record<string, { href: string; label: string }[]> = {
   owner: [
@@ -53,10 +54,7 @@ export default async function DashboardLayout({
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="flex items-center gap-2">
-              <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-ember-500 to-teal-500 text-xs font-bold text-void">
-                N
-              </span>
-              <span className="text-base font-semibold">Nest</span>
+              <Logo className="h-7 w-auto" />
             </Link>
             <div className="hidden gap-1 sm:flex">
               {navItems.map((item) => (

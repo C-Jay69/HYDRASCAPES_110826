@@ -83,7 +83,7 @@ export default function App() {
     const shareUrl = `${window.location.origin}/?property=${property.id}`;
     const shareData = {
       title: property.title,
-      text: `Check out ${property.title} in ${property.address_json.city}, ${property.address_json.state} on Nest Co-Hosting Marketplace!`,
+      text: `Check out ${property.title} in ${property.address_json.city}, ${property.address_json.state} on Hydrascapes Co-Hosting Marketplace!`,
       url: shareUrl,
     };
 
@@ -403,7 +403,7 @@ export default function App() {
   };
 
   if (!currentProfile) {
-    return <div className="min-h-screen bg-[#0B0F14] text-white flex items-center justify-center">Loading Nest...</div>;
+    return <div className="min-h-screen bg-[#0B0F14] text-white flex items-center justify-center">Loading Hydrascapes...</div>;
   }
 
   const filteredProperties = properties.filter(p => 
@@ -688,7 +688,7 @@ export default function App() {
         {/* TAB 6: SPECIFICATION & COSTS DOCS */}
         {activeTab === 'docs' && (
           <div className="bg-[#141B24] p-8 rounded-2xl border border-[#2A3441] space-y-6">
-            <h2 className="text-2xl font-bold text-[#F5F7FA]">Nest Specification v5 & Documentation</h2>
+            <h2 className="text-2xl font-bold text-[#F5F7FA]">Hydrascapes Specification v5 & Documentation</h2>
             <div className="prose prose-invert max-w-none text-xs text-[#B4BCC8] space-y-4 leading-relaxed">
               <h3 className="text-sm font-bold text-[#14B8A6]">Authoritative Build Mandates</h3>
               <ul className="list-disc pl-5 space-y-1">

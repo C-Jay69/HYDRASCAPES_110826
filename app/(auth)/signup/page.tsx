@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import SignupForm from '@/app/components/auth/signup-form';
+import { Logo } from '@/app/components/logo';
 
 export const metadata: Metadata = {
   title: 'Create your account',
@@ -12,10 +13,7 @@ export default function SignupPage() {
       <header className="border-b border-divider">
         <nav className="mx-auto flex max-w-md items-center px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-ember-500 to-teal-500 text-sm font-bold text-void">
-              N
-            </span>
-            <span className="text-lg font-semibold">Nest</span>
+            <Logo className="h-8 w-auto" />
           </Link>
         </nav>
       </header>
@@ -24,7 +22,7 @@ export default function SignupPage() {
           Create your account
         </h1>
         <p className="mt-2 text-sm text-foreground-muted">
-          Choose how you will use Nest. You can complete verification later.
+          Choose how you will use Hydrascapes. You can complete verification later.
         </p>
         <SignupForm />
       </main>

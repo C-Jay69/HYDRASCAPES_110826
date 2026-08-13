@@ -117,7 +117,7 @@ export default function LoginForm() {
       </button>
 
       <p className="text-center text-sm text-foreground-muted">
-        New to Nest?{' '}
+        New to Hydrascapes?{' '}
         <a href="/signup" className="font-medium text-teal-300 hover:underline">
           Create an account
         </a>

@@ -145,7 +145,7 @@ class NestDatabase {
         id: "user-admin-1",
         email: "admin@nestmarketplace.com",
         role: "admin",
-        full_name: "Nest Operations Admin",
+        full_name: "Hydrascapes Operations Admin",
         avatar_path: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80",
         location_json: { city: "San Francisco", state: "CA" },
         bio: "Platform Administrator & Dispute Moderator",

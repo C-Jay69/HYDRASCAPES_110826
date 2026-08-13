@@ -1,6 +1,6 @@
-# Nest — AI-Powered Co-Hosting Marketplace Platform
+# Hydrascapes — AI-Powered Co-Hosting Marketplace Platform
 
-Nest is an enterprise co-hosting marketplace connecting Property Owners, Professional Co-Hosts, Guests, and Administrators. Built with Next.js/React, Express, Gemini 2.5/1.5 AI Multimodal Vision, Stripe Connect, and n8n Workflow Automations.
+Hydrascapes is an enterprise co-hosting marketplace connecting Property Owners, Professional Co-Hosts, Guests, and Administrators. Built with Next.js/React, Express, Gemini 2.5/1.5 AI Multimodal Vision, Stripe Connect, and n8n Workflow Automations.
 
 ---
 

@@ -1,6 +1,6 @@
-# ***NEST BUILD PROMPT AUG 10 2026***
+# ***HYDRASCAPES BUILD PROMPT AUG 10 2026***
 
-NEST BUILD SPECIFICATION v5  
+HYDRASCAPES BUILD SPECIFICATION v5  
 FINAL BUILD SPECIFICATION
 
 Date: August 2026  
@@ -9,7 +9,7 @@ Architecture: Next.js \+ TypeScript \+ Supabase \+ Tailwind \+ Stripe Connect \+
 AI: Vision-capable model through a provider abstraction  
 Deployment philosophy: Free-tier-first, portable, auditable, production-oriented
 
-This document is the single source of truth for the Nest application.
+This document is the single source of truth for the Hydrascapes application.
 
 If implementation code conflicts with this specification, the implementation is considered incorrect unless this specification has first been deliberately amended and committed.
 
@@ -17,7 +17,7 @@ If implementation code conflicts with this specification, the implementation is 
 0\. BUILD MANIFESTO  
 ────────────────────────────────────────
 
-Nest is a co-hosting marketplace.
+Hydrascapes is a co-hosting marketplace.
 
 Owners have properties but may not have time to manage them.
 
@@ -25,7 +25,7 @@ Hosts have time, local knowledge, and hospitality skills but may not own propert
 
 Guests need somewhere to stay.
 
-Nest connects those groups while providing property analysis, identity verification, booking, pricing, payments, communication, reviews, and dispute support.
+Hydrascapes connects those groups while providing property analysis, identity verification, booking, pricing, payments, communication, reviews, and dispute support.
 
 The following principles are non-negotiable.
 
@@ -221,7 +221,7 @@ Stripe Connect.
 
 Use platform charges plus separate transfers when delayed payout is required.
 
-Do not describe this architecture as regulated "escrow" unless Nest later integrates a legally appropriate escrow service and receives appropriate legal advice.
+Do not describe this architecture as regulated "escrow" unless Hydrascapes later integrates a legally appropriate escrow service and receives appropriate legal advice.
 
 KYC:
 
@@ -261,7 +261,7 @@ Scheduled automation belongs in n8n unless explicitly documented otherwise.
 2\. PLATFORM ROLES  
 ────────────────────────────────────────
 
-Nest has four principal roles.
+Hydrascapes has four principal roles.
 
 Owner:
 
@@ -1293,11 +1293,11 @@ Do not claim a particular KYC provider is free.
 
 Important terminology:
 
-Nest uses delayed marketplace payouts.
+Hydrascapes uses delayed marketplace payouts.
 
 Do not call this legal escrow in UI, documentation or marketing unless an appropriate regulated escrow arrangement exists.
 
-Payment architecture must be reviewed against the Stripe Connect account type and the jurisdictions where Nest operates before launch.
+Payment architecture must be reviewed against the Stripe Connect account type and the jurisdictions where Hydrascapes operates before launch.
 
 For a delayed payout architecture, use a supported Stripe Connect charge/transfer pattern such as separate charges and transfers where appropriate.
 
@@ -2083,7 +2083,7 @@ Every AI result is treated as untrusted input until validated.
 32\. DEFINITION OF DONE  
 ────────────────────────────────────────
 
-Nest v1 is complete only when all of the following are true.
+Hydrascapes v1 is complete only when all of the following are true.
 
 Functional:
 
@@ -2339,7 +2339,7 @@ Use the following master agent instruction.
 
 BEGIN AGENT INSTRUCTION
 
-You are implementing the Nest application.
+You are implementing the Hydrascapes application.
 
 Before changing code, read \`docs/SPEC.md\`.
 
@@ -2578,7 +2578,7 @@ END PROMPT
 38\. FINAL ENGINEERING PRINCIPLE  
 ────────────────────────────────────────
 
-Nest is not considered production-ready because it has many features.
+Hydrascapes is not considered production-ready because it has many features.
 
 It is production-ready only when its important invariants survive failure.
 
@@ -2620,7 +2620,7 @@ Build for bootstrappers.
 
 Do not build like a prototype.
 
-END OF NEST BUILD SPECIFICATION v5
+END OF HYDRASCAPES BUILD SPECIFICATION v5
 
 ────────────────────────────────────────
 
@@ -2643,7 +2643,7 @@ Save the first section as \`supabase/migrations/0001\_init.sql\` and the second 
 PART A — \`supabase/migrations/0001\_init.sql\`
 
 \`\`\`sql  
-\-- NEST v5  
+\-- HYDRASCAPES v5  
 \-- 0001\_init.sql  
 \--  
 \-- Core schema.  
@@ -2816,7 +2816,7 @@ begin
     coalesce(  
       nullif(new.raw\_user\_meta\_data \-\>\> 'full\_name', ''),  
       split\_part(coalesce(new.email, ''), '@', 1),  
-      'Nest user'  
+      'Hydrascapes user'  
     ),  
     safe\_role  
   );
@@ -3899,7 +3899,7 @@ PART B — \`supabase/migrations/0002\_rls.sql\`
 The major security change compared with v4 is that authenticated users do not get broad UPDATE access to security-sensitive records.
 
 \`\`\`sql  
-\-- NEST v5  
+\-- HYDRASCAPES v5  
 \-- 0002\_rls.sql  
 \--  
 \-- Principle:  
@@ -4456,7 +4456,7 @@ Add a third migration:
 \`supabase/migrations/0003\_safe\_mutations.sql\`
 
 \`\`\`sql  
-\-- NEST v5  
+\-- HYDRASCAPES v5  
 \-- 0003\_safe\_mutations.sql
 
 begin;
@@ -4575,7 +4575,7 @@ Create:
 \`supabase/migrations/0004\_storage.sql\`
 
 \`\`\`sql  
-\-- NEST v5  
+\-- HYDRASCAPES v5  
 \-- 0004\_storage.sql
 
 begin;
@@ -4965,5 +4965,5 @@ Wait for my approval.
 
 One correction should be made before you use my SQL verbatim: remove the preliminary \`owns\_property()\` function appearing before the \`properties\` table and retain only the version after \`properties\` is created. Apart from that, I would have the coding agent review the migrations against the actual pinned Supabase/PostgreSQL environment and report migration errors rather than silently rewriting security controls.
 
-This gives Nest a much stronger foundation than the original Prompt 2: instead of merely saying "we have RLS," you are designing the application on the assumption that users will deliberately manipulate requests, IDs and database calls—and ensuring those attempts fail.
+This gives Hydrascapes a much stronger foundation than the original Prompt 2: instead of merely saying "we have RLS," you are designing the application on the assumption that users will deliberately manipulate requests, IDs and database calls—and ensuring those attempts fail.
 

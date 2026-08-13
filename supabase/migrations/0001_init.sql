@@ -1,4 +1,4 @@
--- NEST v5
+-- HYDRASCAPES v5
 -- 0001_init.sql
 --
 -- Core schema.

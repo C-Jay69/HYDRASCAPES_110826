@@ -1,5 +1,5 @@
 {
-  "name": "Nest - Co-Hosting Marketplace",
+  "name": "Hydrascapes - Co-Hosting Marketplace",
   "description": "AI-powered co-hosting marketplace connecting property owners, hosts, and guests with multimodal vision analysis, dynamic pricing, host matching, and dispute support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

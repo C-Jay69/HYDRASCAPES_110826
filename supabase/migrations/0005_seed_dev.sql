@@ -1,4 +1,4 @@
--- NEST v5
+-- HYDRASCAPES v5
 -- 0005_seed_dev.sql
 --
 -- Development/demo seed data.

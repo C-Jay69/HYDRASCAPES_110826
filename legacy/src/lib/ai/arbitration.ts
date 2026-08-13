@@ -8,7 +8,7 @@ export async function assessDispute(
   description: string,
   amountClaimedMinor: number
 ): Promise<DisputeAssessment> {
-  const prompt = `You are the AI Dispute Assessment Assistant for Nest Co-Hosting Marketplace.
+  const prompt = `You are the AI Dispute Assessment Assistant for Hydrascapes Co-Hosting Marketplace.
 Analyze inspection evidence for a booking claim:
 
 Description of Claim: "${description}"

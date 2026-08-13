@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import LoginForm from '@/app/components/auth/login-form';
+import { Logo } from '@/app/components/logo';
 
 export const metadata: Metadata = {
   title: 'Sign in',
@@ -12,10 +13,7 @@ export default function LoginPage() {
       <header className="border-b border-divider">
         <nav className="mx-auto flex max-w-md items-center px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-ember-500 to-teal-500 text-sm font-bold text-void">
-              N
-            </span>
-            <span className="text-lg font-semibold">Nest</span>
+            <Logo className="h-8 w-auto" />
           </Link>
         </nav>
       </header>

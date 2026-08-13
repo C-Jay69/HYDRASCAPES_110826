@@ -8,7 +8,7 @@ export async function matchHostAndProperty(
   proposedFeePct: number,
   pitchText: string
 ) {
-  const prompt = `Evaluate compatibility between a Co-Host and a Property Owner on Nest co-hosting marketplace.
+  const prompt = `Evaluate compatibility between a Co-Host and a Property Owner on Hydrascapes co-hosting marketplace.
 
 Host Profile:
 Name: ${host.full_name}

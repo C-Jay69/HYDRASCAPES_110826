@@ -6,11 +6,14 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
   title: {
-    default: 'Nest — AI-Powered Co-Hosting Marketplace',
-    template: '%s · Nest',
+    default: 'Hydrascapes — AI-Powered Co-Hosting Marketplace',
+    template: '%s · Hydrascapes',
   },
   description:
-    'Nest connects property owners with verified professional co-hosts and trusted guests.',
+    'Hydrascapes connects property owners with verified professional co-hosts and trusted guests.',
+  icons: {
+    icon: '/logo.png',
+  },
 };
 
 export default function RootLayout({

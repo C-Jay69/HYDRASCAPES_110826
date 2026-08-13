@@ -1,4 +1,4 @@
--- NEST v5
+-- HYDRASCAPES v5
 -- 0006_privileges.sql
 --
 -- Explicit table privileges for the API roles.

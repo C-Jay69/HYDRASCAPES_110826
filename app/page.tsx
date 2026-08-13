@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, Home, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { Logo } from '@/app/components/logo';
 
 const FEATURES = [
   {
@@ -25,10 +26,7 @@ export default function LandingPage() {
       <header className="border-b border-divider bg-void">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-ember-500 to-teal-500 text-sm font-bold text-void">
-              N
-            </span>
-            <span className="text-lg font-semibold tracking-tight">Nest</span>
+            <Logo className="h-8 w-auto" />
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -53,7 +51,7 @@ export default function LandingPage() {
             The co-hosting marketplace that thinks ahead
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-foreground-muted">
-            Nest connects property owners, verified professional co-hosts and
+            Hydrascapes connects property owners, verified professional co-hosts and
             trusted guests — with transparent pricing, protected payouts and
             every decision explained.
           </p>
@@ -62,7 +60,7 @@ export default function LandingPage() {
               href="/signup"
               className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-ember-500 to-teal-500 px-6 py-3 text-base font-semibold text-void transition-opacity hover:opacity-90"
             >
-              Join Nest <ArrowRight className="h-4 w-4" />
+              Join Hydrascapes <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               href="/login"
@@ -93,7 +91,7 @@ export default function LandingPage() {
 
       <footer className="border-t border-divider">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 text-sm text-foreground-faint">
-          <span>© 2026 Nest</span>
+          <span>© 2026 Hydrascapes</span>
           <span className="inline-flex items-center gap-1">
             <Sparkles className="h-4 w-4 text-gold-500" />
             Warm Amber × Electric Teal
