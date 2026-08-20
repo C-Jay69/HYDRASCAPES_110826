@@ -1,6 +1,9 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { ArrowRight, Home, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import { Logo } from '@/app/components/logo';
+
+const LANDING_IMAGE = '/LANDING_PAGE_1.jpg';
 
 const FEATURES = [
   {
@@ -22,8 +25,16 @@ const FEATURES = [
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-divider bg-void">
+    <div
+      className="flex min-h-screen flex-col relative"
+      style={{
+        backgroundImage: `url(${LANDING_IMAGE})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
+      <header className="border-b border-divider bg-void/50 backdrop-blur-sm">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
             <Logo className="h-8 w-auto" />
