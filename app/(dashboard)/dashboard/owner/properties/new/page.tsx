@@ -1,36 +1,44 @@
-import { redirect } from 'next/navigation';
-import { getUser } from '@/app/lib/auth';
-import { createClient } from '@/app/lib/supabase/server';
+"use client";
 
-export default async function OwnerPropertiesNewPage() {
-  const { user, profile } = await getUser();
-  if (!user || !profile) redirect('/login');
+import { useState } from "react";
+import { redirect } from "next/navigation";
+import { getUser } from "@/app/lib/auth";
+import { createClient } from "@/app/lib/supabase/server";
 
-  const supabase = await createClient();
+export default function OwnerPropertiesNewPage() {
+  const { user, profile } = getUser();
+  const supabase = createClient();
+
+  if (!user || !profile) {
+    redirect("/login");
+  }
+
+  const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setSubmitting(true);
 
     const formData = new FormData(e.target as HTMLFormElement);
-    const title = formData.get('title') as string;
-    const description = formData.get('description') as string | null;
-    const basePrice = formData.get('base_price') as string;
-    const cleaningFee = formData.get('cleaning_fee') as string | null;
-    const currency = formData.get('currency') as string || 'USD';
-    const bedrooms = Number(formData.get('bedrooms'));
-    const bathrooms = Number(formData.get('bathrooms'));
-    const maxGuests = Number(formData.get('max_guests'));
+    const title = formData.get("title") as string;
+    const description = formData.get("description") as string | null;
+    const basePrice = formData.get("base_price") as string;
+    const cleaningFee = formData.get("cleaning_fee") as string | null;
+    const currency = formData.get("currency") as string || "USD";
+    const bedrooms = Number(formData.get("bedrooms"));
+    const bathrooms = Number(formData.get("bathrooms"));
+    const maxGuests = Number(formData.get("max_guests"));
 
-    // Validate required fields
     if (!title || !basePrice || isNaN(bedrooms) || isNaN(bathrooms) || isNaN(maxGuests)) {
-      alert('Please fill in all required fields');
+      alert("Please fill in all required fields");
+      setSubmitting(false);
       return;
     }
 
-    const basePriceMinor = BigInt(basePrice) * 100n; // Convert to minor units
+    const basePriceMinor = BigInt(basePrice) * 100n;
     const cleaningFeeMinor = cleaningFee ? BigInt(cleaningFee) * 100n : 0n;
 
-    const { error } = await supabase.from('properties').insert({
+    const { error } = await supabase.from("properties").insert({
       owner_id: user.id,
       title,
       description,
@@ -41,18 +49,19 @@ export default async function OwnerPropertiesNewPage() {
       bedrooms,
       bathrooms,
       max_guests,
-      status: 'draft' as const,
+      status: "draft" as const,
       photos: [],
       cover_photo: null,
     });
 
     if (error) {
-      console.error('Error creating property:', error);
-      alert('Failed to create property. Please try again.');
+      console.error("Error creating property:", error);
+      alert("Failed to create property. Please try again.");
+      setSubmitting(false);
       return;
     }
 
-    redirect('/dashboard/owner/properties');
+    redirect("/dashboard/owner/properties");
   }
 
   return (
@@ -72,7 +81,6 @@ export default async function OwnerPropertiesNewPage() {
                 required
                 className="w-full rounded-lg border border-divider px-4 py-3 bg-void text-void placeholder-foreground-muted focus:outline-none focus:ring-2 focus:ring-ember-500/20"
                 placeholder="e.g. Modern Downtown Apartment"
-                defaultValue=""
               />
             </div>
 
@@ -101,7 +109,6 @@ export default async function OwnerPropertiesNewPage() {
                 required
                 className="w-full rounded-lg border border-divider px-4 py-3 bg-void text-void placeholder-foreground-muted focus:outline-none focus:ring-2 focus:ring-ember-500/20"
                 placeholder="e.g. 150"
-                defaultValue=""
               />
             </div>
 
@@ -199,8 +206,9 @@ export default async function OwnerPropertiesNewPage() {
             <button
               type="submit"
               className="w-full rounded-lg bg-gradient-to-r from-ember-500 to-teal-500 px-6 py-3 text-base font-semibold text-void transition-colors hover:opacity-90"
+              disabled={submitting}
             >
-              Publish Property
+              {submitting ? "Creating..." : "Publish Property"}
             </button>
           </div>
         </form>
