@@ -1,57 +1,81 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Payout, PayoutState } from '@/app/core/entities';
+
+export type NewPayout = Omit<Payout, 'id' | 'created_at' | 'released_at' | 'failure_reason'> & {
+  released_at?: string | null;
+  failure_reason?: string | null;
+};
 
 export interface PayoutGateway {
-  getById: (id: string) => Promise<any | null>;
-  listByOwner: (ownerId: string) => Promise<any[]>;
-  update: (id: string, updates: Partial<{ owner_amount_minor: number; status: string }>) => Promise<any | null>;
+  getById: (id: string) => Promise<Payout | null>;
+  getByBookingId: (bookingId: string) => Promise<Payout | null>;
+  listByOwner: (ownerId: string) => Promise<Payout[]>;
+  create: (payout: NewPayout) => Promise<Payout>;
+  updateStatus: (id: string, status: PayoutState, extra?: Partial<Payout>) => Promise<Payout | null>;
 }
 
 export class SupabasePayoutGateway implements PayoutGateway {
-  private client: SupabaseClient;
+  constructor(private readonly client: SupabaseClient) {}
 
-  constructor(client: SupabaseClient) {
-    this.client = client;
-  }
-
-  async getById(id: string): Promise<any | null> {
-    const { data, error } = await this.client
-      .from('payouts')
-      .select('*')
-      .eq('id', id)
-      .single();
-
+  async getById(id: string): Promise<Payout | null> {
+    const { data, error } = await this.client.from('payouts').select('*').eq('id', id).maybeSingle();
     if (error) {
       console.error(`Payout getById error for ${id}:`, error);
       return null;
     }
-    return data as any | null;
+    return (data as Payout | null) ?? null;
   }
 
-  async listByOwner(ownerId: string): Promise<any[]> {
+  async getByBookingId(bookingId: string): Promise<Payout | null> {
     const { data, error } = await this.client
       .from('payouts')
       .select('*')
-      .eq('owner_id', ownerId);
+      .eq('booking_id', bookingId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Payout getByBookingId error for ${bookingId}:`, error);
+      return null;
+    }
+    return (data as Payout | null) ?? null;
+  }
+
+  async listByOwner(ownerId: string): Promise<Payout[]> {
+    const { data, error } = await this.client
+      .from('payouts')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error(`Payout listByOwner error for ${ownerId}:`, error);
       return [];
     }
-    return data as any[];
+    return (data as Payout[]) ?? [];
   }
 
-  async update(id: string, updates: Partial<{ owner_amount_minor: number; status: string }>): Promise<any | null> {
+  async create(payout: NewPayout): Promise<Payout> {
+    const { data, error } = await this.client.from('payouts').insert([payout]).select().single();
+    if (error) throw error;
+    return data as Payout;
+  }
+
+  async updateStatus(
+    id: string,
+    status: PayoutState,
+    extra: Partial<Payout> = {},
+  ): Promise<Payout | null> {
     const { data, error } = await this.client
       .from('payouts')
-      .update(updates)
+      .update({ ...extra, status })
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error(`Payout update error for ${id}:`, error);
       return null;
     }
-    return data as any | null;
+    return (data as Payout | null) ?? null;
   }
 }

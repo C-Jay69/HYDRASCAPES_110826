@@ -1,17 +1,21 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/app/lib/supabase/service';
 import { createStripeAdapter } from '@/infrastructure/payments/stripe.adapter';
+import { SupabaseBookingGateway } from '@/infrastructure/db/booking.gateway';
+import { SupabasePayoutGateway } from '@/infrastructure/db/payout.gateway';
+import { ConfirmBookingUseCase } from '@/app/core/usecases/confirm-booking.use';
+import { ApplyStripeEventUseCase } from '@/app/core/usecases/apply-stripe-event.use';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/webhooks/stripe (spec §16)
  *
- * - The raw body is needed for signature verification, so it is read as text.
- * - The signature is verified before the payload is trusted at all.
- * - The event is claimed in `processed_webhook_events` before it is applied;
- *   a duplicate delivery returns 200 without re-applying the effect.
- * - Handler failures return 5xx so Stripe retries.
+ * Order matters:
+ *   1. verify the signature over the raw body,
+ *   2. claim the event (unique provider+event_id) — duplicates stop here,
+ *   3. apply it to booking state,
+ *   4. mark it processed. Failures return 5xx so Stripe retries.
  */
 export async function POST(request: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -27,9 +31,11 @@ export async function POST(request: Request) {
 
   const body = await request.text();
 
+  const service = createServiceClient();
+
   let adapter;
   try {
-    adapter = createStripeAdapter(createServiceClient());
+    adapter = createStripeAdapter(service);
   } catch (error) {
     console.error('Stripe adapter unavailable:', error);
     return NextResponse.json({ error: 'Payments not configured' }, { status: 503 });
@@ -39,18 +45,14 @@ export async function POST(request: Request) {
   try {
     event = adapter.verifyWebhookSignature(body, signature, secret);
   } catch (error) {
-    // Invalid signature is a 400, per Stripe's own guidance.
     console.error('Stripe signature verification failed:', error);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
-  // Record first, apply second: the unique (provider, event_id) constraint is
-  // what makes duplicate delivery safe.
-  const payloadHash = await sha256Hex(body);
   const isNew = await adapter.beginEvent({
     id: event.id,
     type: event.type,
-    payloadHash,
+    payloadHash: await sha256Hex(body),
   });
 
   if (!isNew) {
@@ -58,9 +60,21 @@ export async function POST(request: Request) {
   }
 
   try {
-    await adapter.handleEvent(event);
+    const bookingGateway = new SupabaseBookingGateway(service);
+    const payoutGateway = new SupabasePayoutGateway(service);
+    const apply = new ApplyStripeEventUseCase(
+      bookingGateway,
+      new ConfirmBookingUseCase(bookingGateway, payoutGateway),
+    );
+
+    const result = await apply.execute({
+      id: event.id,
+      type: event.type,
+      data: { object: event.data.object as unknown as Record<string, unknown> },
+    });
+
     await adapter.markEventProcessed(event.id);
-    return NextResponse.json({ received: true }, { status: 200 });
+    return NextResponse.json({ received: true, ...result }, { status: 200 });
   } catch (error) {
     console.error(`Stripe event ${event.id} (${event.type}) failed:`, error);
     await adapter.markEventFailed(

@@ -140,3 +140,73 @@ export interface PropertySummary {
   currency: string;
   visionStatus: VisionState;
 }
+
+/** Row shape of `public.bookings`. Money is integer minor units. */
+export interface Booking {
+  id: string;
+  property_id: string;
+  guest_id: string;
+  host_id: string | null;
+  owner_id: string;
+  checkin: string;
+  checkout: string;
+  nights: number;
+  guests_count: number;
+  per_night_rate_minor: number;
+  nightly_subtotal_minor: number;
+  cleaning_fee_minor: number;
+  taxes_minor: number;
+  total_amount_minor: number;
+  currency: string;
+  status: BookingState;
+  stripe_payment_intent_id: string | null;
+  cancellation_policy_key: string;
+  cancellation_policy_version: number;
+  cancellation_policy_snapshot: Record<string, unknown>;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  refund_amount_minor: number | null;
+  guest_preferences: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Row shape of `public.payouts`. */
+export interface Payout {
+  id: string;
+  booking_id: string;
+  owner_id: string;
+  host_id: string | null;
+  settlement_base_minor: number;
+  owner_amount_minor: number;
+  host_amount_minor: number;
+  platform_amount_minor: number;
+  owner_pct_snapshot: number;
+  host_pct_snapshot: number;
+  platform_pct_snapshot: number;
+  currency: string;
+  status: PayoutState;
+  releasable_at: string;
+  stripe_transfer_owner_id: string | null;
+  stripe_transfer_host_id: string | null;
+  failure_reason: string | null;
+  released_at: string | null;
+  created_at: string;
+}
+
+/** A named, versioned cancellation policy (spec §15.2). */
+export interface CancellationPolicy {
+  key: CancellationPolicyKey;
+  version: number;
+  label: string;
+  /** Full refund while cancelling at least this many hours before check-in. */
+  fullRefundHours: number;
+  /** Partial refund window; 0 means no partial tier. */
+  partialRefundHours: number;
+  /** Percentage of the nightly subtotal returned inside the partial window. */
+  partialRefundPct: number;
+}
+
+export type CancellationPolicyKey = 'flexible' | 'moderate' | 'strict';
+
+export const DEFAULT_CANCELLATION_POLICY: CancellationPolicyKey = 'moderate';

@@ -1,98 +1,211 @@
-import { SupabaseClient } from '@supabase/supabase-js';
-import type { BookingState } from '@/app/core/entities';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Booking, BookingState } from '@/app/core/entities';
+import { LIVE_BOOKING_STATES } from '@/app/lib/bookings/state';
+import type { AvailabilityWindow, RevenueSplit } from '@/app/lib/bookings/types';
+import { DEFAULT_SPLIT } from '@/app/lib/bookings/settlement';
+
+/** Everything required to insert a booking; pricing is decided by the caller. */
+export type NewBooking = Omit<
+  Booking,
+  | 'nights' // generated column: checkout - checkin
+  | 'created_at'
+  | 'updated_at'
+  | 'cancelled_at'
+  | 'cancelled_by'
+  | 'refund_amount_minor'
+>;
 
 export interface BookingGateway {
-  getById: (id: string) => Promise<any | null>;
-  listByProperty: (propertyId: string) => Promise<any[]>;
-  listByGuest: (guestId: string) => Promise<any[]>;
-  create: (booking: {
-    id: string;
-    property_id: string;
-    guest_id: string;
-    checkin: string;
-    checkout: string;
-    status: BookingState;
-    total_amount_minor: number;
-  }) => Promise<any>;
-  update: (id: string, updates: Partial<{ status: BookingState; total_amount_minor: number }>) => Promise<any | null>;
+  getById: (id: string) => Promise<Booking | null>;
+  findByPaymentIntent: (paymentIntentId: string) => Promise<Booking | null>;
+  listByGuest: (guestId: string) => Promise<Booking[]>;
+  listByProperty: (propertyId: string) => Promise<Booking[]>;
+  /** Live bookings overlapping the half-open range [checkin, checkout). */
+  findConflicts: (propertyId: string, checkin: string, checkout: string) => Promise<Booking[]>;
+  /** Owner-blocked windows overlapping the range. */
+  blockedWindows: (propertyId: string, checkin: string, checkout: string) => Promise<AvailabilityWindow[]>;
+  create: (booking: NewBooking) => Promise<Booking>;
+  /**
+   * Applies a status change only if the row is still in one of `from`.
+   * Returns null when another writer got there first — the optimistic lock.
+   */
+  transition: (
+    id: string,
+    from: BookingState[],
+    to: BookingState,
+    extra?: Partial<Booking>,
+  ) => Promise<Booking | null>;
+  setPaymentIntent: (id: string, paymentIntentId: string) => Promise<void>;
+  revenueSplit: () => Promise<RevenueSplit>;
 }
 
+const COLUMNS =
+  'id, property_id, guest_id, host_id, owner_id, checkin, checkout, nights, guests_count, ' +
+  'per_night_rate_minor, nightly_subtotal_minor, cleaning_fee_minor, taxes_minor, ' +
+  'total_amount_minor, currency, status, stripe_payment_intent_id, cancellation_policy_key, ' +
+  'cancellation_policy_version, cancellation_policy_snapshot, cancelled_at, cancelled_by, ' +
+  'refund_amount_minor, guest_preferences, created_at, updated_at';
+
 export class SupabaseBookingGateway implements BookingGateway {
-  private client: SupabaseClient;
+  constructor(private readonly client: SupabaseClient) {}
 
-  constructor(client: SupabaseClient) {
-    this.client = client;
-  }
-
-  async getById(id: string): Promise<any | null> {
+  async getById(id: string): Promise<Booking | null> {
     const { data, error } = await this.client
       .from('bookings')
-      .select('*')
+      .select(COLUMNS)
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error(`Booking getById error for ${id}:`, error);
       return null;
     }
-    return data as any | null;
+    return (data as unknown as Booking | null) ?? null;
   }
 
-  async listByProperty(propertyId: string): Promise<any[]> {
+  async findByPaymentIntent(paymentIntentId: string): Promise<Booking | null> {
     const { data, error } = await this.client
       .from('bookings')
-      .select('*')
-      .eq('property_id', propertyId);
+      .select(COLUMNS)
+      .eq('stripe_payment_intent_id', paymentIntentId)
+      .maybeSingle();
 
     if (error) {
-      console.error(`Booking listByProperty error for ${propertyId}:`, error);
-      return [];
+      console.error(`Booking findByPaymentIntent error for ${paymentIntentId}:`, error);
+      return null;
     }
-    return data as any[];
+    return (data as unknown as Booking | null) ?? null;
   }
 
-  async listByGuest(guestId: string): Promise<any[]> {
-    const { data, error } = await this.client
+  async listByGuest(guestId: string): Promise<Booking[]> {    const { data, error } = await this.client
       .from('bookings')
-      .select('*')
-      .eq('guest_id', guestId);
+      .select(COLUMNS)
+      .eq('guest_id', guestId)
+      .order('checkin', { ascending: false });
 
     if (error) {
       console.error(`Booking listByGuest error for ${guestId}:`, error);
       return [];
     }
-    return data as any[];
+    return (data as unknown as Booking[]) ?? [];
   }
 
-  async create(booking: {
-    id: string;
-    property_id: string;
-    guest_id: string;
-    checkin: string;
-    checkout: string;
-    status: BookingState;
-    total_amount_minor: number;
-  }): Promise<any> {
-    const { data, error } = await this.client.from('bookings').insert([booking]).select().single();
-    if (error) {
-      console.error('Booking create error:', error);
-      throw error;
-    }
-    return data as any;
-  }
-
-  async update(id: string, updates: Partial<{ status: BookingState; total_amount_minor: number }>): Promise<any | null> {
+  async listByProperty(propertyId: string): Promise<Booking[]> {
     const { data, error } = await this.client
       .from('bookings')
-      .update(updates)
-      .eq('id', id)
-      .select()
+      .select(COLUMNS)
+      .eq('property_id', propertyId)
+      .order('checkin', { ascending: false });
+
+    if (error) {
+      console.error(`Booking listByProperty error for ${propertyId}:`, error);
+      return [];
+    }
+    return (data as unknown as Booking[]) ?? [];
+  }
+
+  async findConflicts(propertyId: string, checkin: string, checkout: string): Promise<Booking[]> {
+    // Overlap test for half-open ranges: existing.start < new.end AND existing.end > new.start
+    const { data, error } = await this.client
+      .from('bookings')
+      .select(COLUMNS)
+      .eq('property_id', propertyId)
+      .in('status', [...LIVE_BOOKING_STATES])
+      .lt('checkin', checkout)
+      .gt('checkout', checkin);
+
+    if (error) {
+      console.error(`Booking conflict query error for ${propertyId}:`, error);
+      throw new Error('Could not check availability');
+    }
+    return (data as unknown as Booking[]) ?? [];
+  }
+
+  async blockedWindows(
+    propertyId: string,
+    checkin: string,
+    checkout: string,
+  ): Promise<AvailabilityWindow[]> {
+    const { data, error } = await this.client
+      .from('availability_blocks')
+      .select('start_date, end_date, reason')
+      .eq('property_id', propertyId)
+      .lt('start_date', checkout)
+      .gt('end_date', checkin);
+
+    if (error) {
+      console.error(`Availability block query error for ${propertyId}:`, error);
+      return [];
+    }
+
+    return (data ?? []).map((row) => ({
+      start: row.start_date as string,
+      end: row.end_date as string,
+      reason: (row.reason as string | null) ?? null,
+    }));
+  }
+
+  async create(booking: NewBooking): Promise<Booking> {
+    const { data, error } = await this.client
+      .from('bookings')
+      .insert([booking])
+      .select(COLUMNS)
       .single();
 
     if (error) {
-      console.error(`Booking update error for ${id}:`, error);
+      throw error;
+    }
+    return data as unknown as Booking;
+  }
+
+  async transition(
+    id: string,
+    from: BookingState[],
+    to: BookingState,
+    extra: Partial<Booking> = {},
+  ): Promise<Booking | null> {
+    const { data, error } = await this.client
+      .from('bookings')
+      .update({ ...extra, status: to })
+      .eq('id', id)
+      .in('status', from)
+      .select(COLUMNS)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Booking transition ${from.join('|')} -> ${to} failed for ${id}:`, error);
       return null;
     }
-    return data as any | null;
+    return (data as unknown as Booking | null) ?? null;
+  }
+
+  async setPaymentIntent(id: string, paymentIntentId: string): Promise<void> {
+    const { error } = await this.client
+      .from('bookings')
+      .update({ stripe_payment_intent_id: paymentIntentId })
+      .eq('id', id);
+
+    if (error) {
+      console.error(`Could not attach payment intent to booking ${id}:`, error);
+    }
+  }
+
+  async revenueSplit(): Promise<RevenueSplit> {
+    const { data } = await this.client
+      .from('platform_settings')
+      .select('value_json')
+      .eq('key', 'revenue_split')
+      .maybeSingle();
+
+    const value = data?.value_json as Partial<RevenueSplit> | undefined;
+    if (
+      !value ||
+      typeof value.ownerPct !== 'number' ||
+      typeof value.hostPct !== 'number' ||
+      typeof value.platformPct !== 'number'
+    ) {
+      return DEFAULT_SPLIT;
+    }
+    return value as RevenueSplit;
   }
 }

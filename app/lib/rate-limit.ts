@@ -29,6 +29,8 @@ export const RATE_LIMITS = {
   propertyCreate: { windowSeconds: 3600, max: 30 },
   /** Destructive or state-changing property operations. */
   propertyWrite: { windowSeconds: 3600, max: 120 },
+  /** Booking attempts, including quote checks that hit the database. */
+  bookingAttempt: { windowSeconds: 3600, max: 60 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export interface RateLimitResult {
