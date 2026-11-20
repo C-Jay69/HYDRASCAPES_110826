@@ -160,6 +160,15 @@ export default async function PropertyDetailPage({
                   fee
                 </p>
               )}
+
+              {property.status === 'listed' && (
+                <Link
+                  href={`/book/${property.id}`}
+                  className="mt-4 block rounded-lg bg-gradient-to-r from-ember-500 to-teal-500 px-4 py-2.5 text-center text-sm font-semibold text-void transition-opacity hover:opacity-90"
+                >
+                  Check dates & book
+                </Link>
+              )}
             </div>
 
             <div className="rounded-2xl border border-divider bg-card p-6 text-sm text-foreground-muted">

@@ -73,19 +73,21 @@ export default async function GuestDashboardPage() {
               const row = booking as BookingWithProperty;
               const property = row.properties?.[0];
               return (
-                <li
-                  key={row.id}
-                  className="flex items-center justify-between rounded-lg border border-divider bg-surface px-4 py-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{property?.title ?? 'Stay'}</p>
-                    <p className="text-xs text-foreground-faint">
-                      {row.checkin} → {row.checkout} · {row.status}
+                <li key={row.id}>
+                  <Link
+                    href={`/bookings/${row.id}`}
+                    className="flex items-center justify-between rounded-lg border border-divider bg-surface px-4 py-3 transition-colors hover:border-teal-500/40"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{property?.title ?? 'Stay'}</p>
+                      <p className="text-xs text-foreground-faint">
+                        {row.checkin} → {row.checkout} · {row.status.replace('_', ' ')}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-teal-300">
+                      {formatCurrency(row.total_amount_minor ?? 0, row.currency ?? 'USD')}
                     </p>
-                  </div>
-                  <p className="text-sm font-semibold text-teal-300">
-                    {formatCurrency(row.total_amount_minor ?? 0, row.currency ?? 'USD')}
-                  </p>
+                  </Link>
                 </li>
               );
             })}

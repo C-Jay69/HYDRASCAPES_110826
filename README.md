@@ -18,7 +18,7 @@ feature list that reads like a brochure.
 | :--- | :--- | :--- |
 | 1 — Foundation | Auth, roles, RLS, dashboards | ✅ Done |
 | 2 — Property + vision | Property CRUD, private uploads, AI analysis, search | ✅ Done |
-| 3 — Bookings + payments | Availability, quotes, Stripe Connect, payouts | ⛔ Not built |
+| 3 — Bookings + payments | Availability, quotes, state machine, payouts, cancellation | 🟡 Done, except Stripe Connect transfers |
 | 4 — Trust | KYC, host applications, messaging, reviews | ⛔ Not built |
 | 5 — Pricing + disputes | Pricing engine, price calendar, dispute assessment | 🟡 Vision price hint only |
 | 6 — Admin + automation | Admin portal, n8n workflows, email | ⛔ Not built |
@@ -26,11 +26,14 @@ feature list that reads like a brochure.
 
 **What works end to end:** sign up → get a role dashboard → upload property photos →
 private re-encoded storage → background schema-validated vision analysis →
-Property Eye card → publish → find it in `/search` → view `/property/[id]`.
+Property Eye card → publish → find it in `/search` → view `/property/[id]` →
+check dates and price → reserve → pay (or confirm in dev mode) → see the trip in your
+dashboard → cancel under the booking's own policy.
 
-**What does not work yet:** there is no way to book a stay, take a payment, verify a
-host's identity, message anyone, or open a dispute. Those are Phases 3–5. Admin pages
-show counts only.
+**What does not work yet:** host identity verification, messaging, reviews, disputes,
+the full pricing engine, the admin portal and automation. Admin pages show counts only.
+Payments run through Stripe Checkout, but **Stripe Connect transfers to owners/hosts are
+not implemented** — payouts are recorded in the database and left `held`.
 
 ### Signature verification, quickly
 
@@ -146,18 +149,62 @@ npm run seed:photos     # writes gradient covers into the property-photos bucket
 Without that step the listings still exist (and are searchable) but show "No photo yet".
 The script is idempotent — it upserts, so re-running is harmless.
 
-### Tests
+### Bookings and payments
 
-Unit suites (`money`, `pricing`, `ai-validation`, `rate-limit`, `storage`) run anywhere,
-no infrastructure needed:
+The flow is deliberately boring:
+
+1. `POST /api/bookings/quote` prices the stay and reports availability. The quote is
+   advisory — the server re-prices when the booking is created.
+2. `POST /api/bookings` inserts an unpaid booking in `pending_payment`, which **holds the
+   dates**, then starts Stripe Checkout.
+3. `POST /api/webhooks/stripe` verifies the signature, claims the event (unique
+   `provider + event_id`), confirms the booking and creates its payout record.
+4. Cancelling computes the refund from the booking's policy snapshot and asks Stripe to
+   move that exact amount.
+
+Three rules worth knowing:
+
+- **The database decides who wins a race.** `bookings` has a GiST exclusion constraint on
+  `daterange(checkin, checkout, '[)')` covering live states *and unpaid holds*. Ten
+  simultaneous attempts at the same dates produce exactly one reservation; the other nine
+  fail with `23P01`. This is covered by `tests/concurrency.test.ts`.
+- **Holds expire.** An abandoned checkout would otherwise block dates forever, so
+  `expire_stale_pending_bookings()` cancels unpaid bookings older than 15 minutes. It is
+  called opportunistically by the booking API; schedule it later if you like.
+- **Cancellation terms are frozen at booking time.** Policy key, version and rules are
+  snapshotted onto the row, so editing `CANCELLATION_POLICIES` never rewrites old bookings.
+
+Payouts are split per `platform_settings.revenue_split` (82 / 15 / 3), computed in integer
+minor units with the owner taking the remainder so the three amounts always reconcile.
+
+**Development without Stripe.** If `STRIPE_SECRET_KEY` is unset and you are not in
+production, the booking is confirmed immediately and the response and UI both say so
+("Development mode: no payment was taken"). In production the hold is released and the
+request returns 503 — a booking nobody paid for must never keep dates blocked.
+
+To exercise the real path, add test keys and forward webhooks:
 
 ```bash
-npx vitest run tests/money.test.ts tests/pricing.test.ts tests/ai-validation.test.ts \
-               tests/rate-limit.test.ts tests/storage.test.ts
+# .env.local
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
 ```
 
-`tests/rls.test.ts` is an **integration** suite: it needs a running local Supabase with
-seed data (`supabase start && supabase db reset`) and will fail without one.
+### Tests
+
+Unit suites (`money`, `pricing`, `bookings`, `ai-validation`, `rate-limit`, `storage`) run
+anywhere, no infrastructure needed:
+
+```bash
+npx vitest run tests/money.test.ts tests/pricing.test.ts tests/bookings.test.ts \
+               tests/ai-validation.test.ts tests/rate-limit.test.ts tests/storage.test.ts
+```
+
+`tests/rls.test.ts` and `tests/concurrency.test.ts` are **integration** suites: they need
+a running local Supabase with seed data (`supabase start && supabase db reset`) and will
+fail without one. `npm test` runs everything.
 
 ---
 
@@ -167,17 +214,20 @@ seed data (`supabase start && supabase db reset`) and will fail without one.
 app/
   core/              Domain layer — no framework, no vendor imports
     entities/        Row types + enums, mirroring supabase/migrations/0001
-    usecases/        create-property, analyze-property
+    usecases/        property create/analyze, booking create/confirm/cancel, stripe events
   lib/
     ai/              provider (transport) → structured (aiJson boundary) → vision (task)
+    bookings/        Quote, state machine, cancellation arithmetic, settlement
     pricing/         Deterministic refinements; money computed here, never by a model
     storage/         Upload validation, sharp re-encode, signed URL minting
     supabase/        Browser / server / service clients + session middleware
     money.ts         Integer minor-unit parsing and formatting
     authorization.ts requireUser / requireRole for route handlers
     rate-limit.ts    Postgres-backed, fixed-window
-  api/               Route handlers (properties, uploads, webhooks)
+  api/               Route handlers (properties, bookings, uploads, webhooks)
   property/[id]/     Public detail page
+  book/[propertyId]/ Date selection, live quote, reserve
+  bookings/[id]/     Trip detail, policy, cancellation
   search/            Public discovery
 infrastructure/      Adapters implementing the ports the core depends on
 legacy/              Earlier prototype (Firebase). Excluded from build, lint and tsc.
@@ -189,15 +239,16 @@ Nothing in `core` imports a vendor SDK.
 
 ### Database
 
-Eleven migrations in `supabase/migrations/`, applied in order:
+Thirteen migrations in `supabase/migrations/`, applied in order:
 
 `0001` schema (21 tables, enums, constraints) · `0002` RLS policies · `0003` safe mutation
 RPCs · `0004` private storage buckets · `0005` dev seed · `0006` grants · `0007` review FK ·
 `0008` vision config · `0009` storage object policies · `0010` public profile view ·
-`0011` rate limits.
+`0011` rate limits · `0012` placeholder cities · `0013` booking holds + expiry.
 
 Money columns are `bigint` minor units. `properties` enforces
-`min_price <= base_price <= max_price` in the database.
+`min_price <= base_price <= max_price`, and `bookings` enforces non-overlap for live
+stays in the database itself.
 
 ---
 
