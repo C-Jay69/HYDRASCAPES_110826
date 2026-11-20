@@ -76,6 +76,11 @@ cp .env.example .env.local
 
 Every variable is documented inline in `.env.example`. The ones you cannot skip:
 
+> **Already have a `.env` from an earlier run?** Its keys must match the stack that is
+> actually running. Print the live values with `supabase status -o env` and copy
+> `API_URL`, `ANON_KEY` and `SERVICE_ROLE_KEY` into `NEXT_PUBLIC_SUPABASE_URL`,
+> `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`.
+
 | Variable | Purpose |
 | :--- | :--- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Local API URL from `supabase start` |
@@ -120,6 +125,26 @@ update public.profiles set role = 'admin' where email = 'you@example.com';
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest, all suites |
 | `npm run test:watch` | Vitest in watch mode |
+| `npm run seed:photos` | Generates placeholder cover images for seeded listings |
+
+### Placeholder data
+
+`supabase db reset` seeds demo data: a handful of original fixtures plus **15 listings
+across major cities** — New York, London, Paris, Tokyo, Rome, Barcelona, Lisbon,
+Amsterdam, Berlin, Miami, Los Angeles, Singapore, Dubai, Sydney and Toronto — each with
+its own currency, price band, amenities and a vision analysis.
+
+These are **fixtures, not real properties**: titles, addresses and vision scores are
+invented, and the "photos" are generated gradients labelled with the city.
+
+The images are uploaded separately because they are binary assets, not rows:
+
+```bash
+npm run seed:photos     # writes gradient covers into the property-photos bucket
+```
+
+Without that step the listings still exist (and are searchable) but show "No photo yet".
+The script is idempotent — it upserts, so re-running is harmless.
 
 ### Tests
 

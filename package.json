@@ -10,7 +10,8 @@
     "lint": "eslint app/ middleware.ts tests/ --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:photos": "node scripts/seed-placeholder-photos.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

@@ -293,7 +293,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"conditionScore":9,"interiorModernity":10,"curbAppeal":9,"qualityTier":"Luxury","highlights":["\"Floor-to-ceiling glass facade\"","\"Panoramic bay view\"","\"Marble waterfall island\"","\"Custom lighting design\""],"redFlags":[],"reasoning":"High contrast architectural geometry with natural ambient sunlight and premium materials. Vibe: modern minimalist. Lighting: exceptional. Perceived size: spacious.","confidence":0.85}'
+  '{"conditionScore":9,"interiorModernity":10,"curbAppeal":9,"qualityTier":"Luxury","highlights":["Floor-to-ceiling glass facade","Panoramic bay view","Marble waterfall island","Custom lighting design"],"redFlags":[],"reasoning":"High contrast architectural geometry with natural ambient sunlight and premium materials. Vibe: modern minimalist. Lighting: exceptional. Perceived size: spacious.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000002',
@@ -323,7 +323,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"conditionScore":9,"interiorModernity":9,"curbAppeal":8,"qualityTier":"Premium","highlights":["\"Exposed original brick\"","\"Skylights\"","\"Private planted rooftop terrace\""],"redFlags":[],"reasoning":"Classic SoHo architectural heritage with contemporary art and lighting. Vibe: urban industrial. Lighting: exceptional. Perceived size: medium.","confidence":0.85}'
+  '{"conditionScore":9,"interiorModernity":9,"curbAppeal":8,"qualityTier":"Premium","highlights":["Exposed original brick","Skylights","Private planted rooftop terrace"],"redFlags":[],"reasoning":"Classic SoHo architectural heritage with contemporary art and lighting. Vibe: urban industrial. Lighting: exceptional. Perceived size: medium.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000003',
