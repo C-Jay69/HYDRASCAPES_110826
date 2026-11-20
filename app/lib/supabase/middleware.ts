@@ -1,12 +1,38 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback'];
+const PUBLIC_ROUTES = [
+  '/',
+  '/login',
+  '/signup',
+  '/home-interior',
+];
+
+/**
+ * Public prefixes.
+ *
+ * - `/api/webhooks/` — Stripe and Stripe Identity sign with a webhook secret,
+ *   not a session. Redirecting them to /login silently breaks every payment.
+ * - `/api/internal/` — machine-to-machine n8n calls; the route handler must
+ *   verify INTERNAL_API_TOKEN itself.
+ * - `/auth/` — OAuth callback and identity verification entry points.
+ * - `/property`, `/search` — public discovery.
+ */
+const PUBLIC_PREFIXES = [
+  '/api/auth',
+  '/api/webhooks',
+  '/api/internal',
+  '/auth',
+  '/property',
+  '/search',
+];
 
 function isPublicRoute(pathname: string) {
   if (PUBLIC_ROUTES.includes(pathname)) return true;
-  if (pathname.startsWith('/api/auth')) return true;
-  return false;
+  if (/^\/property-\d+$/.test(pathname)) return true;
+  return PUBLIC_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 export async function updateSession(request: NextRequest) {
@@ -40,6 +66,10 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!user && !isPublicRoute(pathname)) {
+    // API clients get a machine-readable 401, not an HTML redirect to /login.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);

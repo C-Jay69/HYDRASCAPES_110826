@@ -41,6 +41,12 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              href="/search"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-foreground-muted transition-colors hover:text-foreground"
+            >
+              Browse stays
+            </Link>
+            <Link
               href="/login"
               className="rounded-lg px-4 py-2 text-sm font-medium text-foreground-muted transition-colors hover:text-foreground"
             >

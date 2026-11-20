@@ -1,10 +1,8 @@
-import { redirect } from 'next/navigation';
-import { getUser } from '@/app/lib/auth';
 import { createClient } from '@/app/lib/supabase/server';
+import { requireDashboardRole } from '@/app/lib/dashboard-auth';
 
 export default async function HostDashboardPage() {
-  const { user, profile } = await getUser();
-  if (!user || !profile) redirect('/login');
+  const { user, profile } = await requireDashboardRole(['host', 'admin']);
 
   const supabase = await createClient();
   const { data: applications } = await supabase

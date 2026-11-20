@@ -1,109 +1,110 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/app/lib/supabase/service';
-import { createOpenRouterAdapter } from '@/infrastructure/ai/openrouter.adapter';
-import { createSupabasePropertyGateway } from '@/infrastructure/db/property.gateway';
-import { createSupabaseProfileGateway } from '@/infrastructure/db/profile.gateway';
+import { NextResponse, after } from 'next/server';
+import { requireRole, errorResponse, HttpError } from '@/app/lib/authorization';
+import { enforceRateLimit, RATE_LIMITS } from '@/app/lib/rate-limit';
+import { createPropertyInputSchema } from '@/app/lib/ai/schemas';
+import { SupabasePropertyGateway } from '@/infrastructure/db/property.gateway';
+import { SupabaseProfileGateway } from '@/infrastructure/db/profile.gateway';
 import { CreatePropertyUseCase } from '@/app/core/usecases/create-property.use';
 import { AnalyzePropertyUseCase } from '@/app/core/usecases/analyze-property.use';
+import { createAiAdapter } from '@/infrastructure/ai/openrouter.adapter';
+import { createSignedUrlResolver } from '@/app/lib/storage/signed-urls';
 
+/** GET /api/properties — the signed-in owner's properties. */
+export async function GET() {
+  try {
+    const { supabase, user, profile } = await requireRole(['owner', 'admin']);
+
+    const gateway = new SupabasePropertyGateway(supabase);
+    const properties = await gateway.listByOwner(user.id);
+
+    return NextResponse.json({ properties, role: profile.role });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/**
+ * POST /api/properties — create a draft property.
+ *
+ * The vision analysis is queued with `after()` so it runs once the response
+ * has been sent. A slow or failing model never blocks the save (spec §1).
+ */
 export async function POST(request: Request) {
   try {
-    const supabase = createClient();
-    const body = await request.json();
+    const { supabase, user } = await requireRole(['owner', 'admin']);
 
-    // Initialize gateways and use cases
-    const propertyGateway = new createSupabasePropertyGateway(supabase);
-    const profileGateway = new createSupabaseProfileGateway(supabase);
-    const aiPort = createOpenRouterAdapter();
+    await enforceRateLimit(supabase, `property:create:${user.id}`, RATE_LIMITS.propertyCreate);
 
-    const createUseCase = new CreatePropertyUseCase(
-      propertyGateway,
-      profileGateway,
-      aiPort
-    );
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      throw new HttpError(400, 'Request body must be JSON');
+    }
 
-    const analyzeUseCase = new AnalyzePropertyUseCase(
-      propertyGateway,
-      aiPort
-    );
-
-    // Extract property data from request
-    const {
-      title,
-      description,
-      address_json,
-      latitude,
-      longitude,
-      bedrooms,
-      bathrooms,
-      max_guests,
-      amenities,
-      base_price_minor,
-      min_price_minor,
-      max_price_minor,
-      currency,
-      cleaning_fee_minor,
-      photos, // array of storage paths
-      cover_photo,
-    } = body;
-
-    // Validate required fields
-    if (!title || !address_json || !photos || photos.length === 0) {
+    const parsed = createPropertyInputSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Title, address, and at least one photo are required' },
-        { status: 400 }
+        {
+          error: 'Invalid property data',
+          issues: parsed.error.issues.map((issue) => ({
+            field: issue.path.join('.') || '<root>',
+            message: issue.message,
+          })),
+        },
+        { status: 400 },
       );
     }
 
-    // Get the current user (owner) from auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const input = parsed.data;
 
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const propertyGateway = new SupabasePropertyGateway(supabase);
+    const profileGateway = new SupabaseProfileGateway(supabase);
+    const useCase = new CreatePropertyUseCase(propertyGateway, profileGateway);
 
-    // Create property
-    const createResult = await createUseCase.execute({
-      title,
-      description,
-      address_json,
-      latitude,
-      longitude,
-      bedrooms,
-      bathrooms,
-      max_guests,
-      amenities,
-      base_price_minor,
-      min_price_minor,
-      max_price_minor,
-      currency,
-      cleaning_fee_minor,
-      photos,
-      cover_photo,
+    const { property } = await useCase.execute({
+      ...input,
+      minPriceMinor: input.minPriceMinor ?? input.basePriceMinor,
+      maxPriceMinor: input.maxPriceMinor ?? input.basePriceMinor,
       ownerId: user.id,
     });
 
-    // Trigger AI analysis in background
-    const analyzeResult = await analyzeUseCase.execute({
-      propertyId: createResult.property.id,
-    });
+    const aiPort = createAiAdapter();
+    const shouldAnalyze = property.photos.length > 0 && aiPort.isConfigured();
 
-    // Return the created property with analysis results
+    if (shouldAnalyze) {
+      after(async () => {
+        try {
+          const analyzeUseCase = new AnalyzePropertyUseCase(
+            propertyGateway,
+            aiPort,
+            createSignedUrlResolver(supabase),
+          );
+          await analyzeUseCase.execute({ propertyId: property.id });
+        } catch (error) {
+          // Vision failure is recorded on the property by the use case; it must
+          // never surface as a failed save.
+          console.error(`Background vision analysis failed for ${property.id}:`, error);
+        }
+      });
+    }
+
     return NextResponse.json(
       {
-        property: createResult.property,
-        analysis: analyzeResult.analysis,
-        message: 'Property created and AI analysis triggered',
+        property,
+        vision: shouldAnalyze
+          ? { queued: true }
+          : {
+              queued: false,
+              reason:
+                property.photos.length === 0
+                  ? 'No photos to analyse yet'
+                  : 'AI provider is not configured',
+            },
       },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (error) {
-    console.error('Property creation error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }

@@ -1,10 +1,8 @@
-import { redirect } from 'next/navigation';
-import { getUser } from '@/app/lib/auth';
 import { createClient } from '@/app/lib/supabase/server';
+import { requireDashboardRole } from '@/app/lib/dashboard-auth';
 
 export default async function OwnerPayoutsPage() {
-  const { user, profile } = await getUser();
-  if (!user || !profile) redirect('/login');
+  const { user, profile } = await requireDashboardRole(['owner', 'admin']);
 
   const supabase = await createClient();
   const { data: payouts } = await supabase

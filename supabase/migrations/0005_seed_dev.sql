@@ -293,7 +293,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"luxury","condition_score":9,"interior_modernity_score":10,"curb_appeal_score":9,"notable_features":["Floor-to-ceiling glass facade","Panoramic bay view","Marble waterfall island","Custom lighting design"],"red_flags":[],"aesthetic_vibe":"modern_minimalist","estimated_size_bracket":"spacious","lighting_quality":"exceptional","visual_justification":"High contrast architectural geometry with natural ambient sunlight and premium materials.","confidence":"high"}'
+  '{"conditionScore":9,"interiorModernity":10,"curbAppeal":9,"qualityTier":"Luxury","highlights":["\"Floor-to-ceiling glass facade\"","\"Panoramic bay view\"","\"Marble waterfall island\"","\"Custom lighting design\""],"redFlags":[],"reasoning":"High contrast architectural geometry with natural ambient sunlight and premium materials. Vibe: modern minimalist. Lighting: exceptional. Perceived size: spacious.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000002',
@@ -323,7 +323,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"premium","condition_score":9,"interior_modernity_score":9,"curb_appeal_score":8,"notable_features":["Exposed original brick","Skylights","Private planted rooftop terrace"],"red_flags":[],"aesthetic_vibe":"urban_industrial","estimated_size_bracket":"medium","lighting_quality":"exceptional","visual_justification":"Classic SoHo architectural heritage with contemporary art and lighting.","confidence":"high"}'
+  '{"conditionScore":9,"interiorModernity":9,"curbAppeal":8,"qualityTier":"Premium","highlights":["\"Exposed original brick\"","\"Skylights\"","\"Private planted rooftop terrace\""],"redFlags":[],"reasoning":"Classic SoHo architectural heritage with contemporary art and lighting. Vibe: urban industrial. Lighting: exceptional. Perceived size: medium.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000003',
@@ -417,7 +417,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"luxury","condition_score":9,"interior_modernity_score":8,"curb_appeal_score":9,"notable_features":[Herringbone parquet floors,Haussmannian moldings,Eiffel Tower view from balcony],"red_flags":[],"aesthetic_vibe":"classic_parisian","estimated_size_bracket":"compact","lighting_quality":"soft natural light","visual_justification":"Timeless Parisian elegance with modern amenities blended seamlessly.","confidence":"high"}'
+  '{"conditionScore":9,"interiorModernity":8,"curbAppeal":9,"qualityTier":"Luxury","highlights":["Herringbone parquet floors","Haussmannian moldings","Eiffel Tower view from balcony"],"redFlags":[],"reasoning":"Timeless Parisian elegance with modern amenities blended seamlessly. Vibe: classic parisian. Lighting: soft natural light. Perceived size: compact.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000005',
@@ -448,7 +448,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"luxury","condition_score":10,"interior_modernity_score":9,"curb_appeal_score":10,"notable_features":[Floor-to-ceiling windows,Robot butler,Panoramic city views],"red_flags":[],"aesthetic_vibe":"futuristic_minimalist","estimated_size_bracket":"compact","lighting_quality":"adjustable ambience","visual_justification":"Cutting-edge design with premium tech integration and unparalleled cityscape vistas.","confidence":"high"}'
+  '{"conditionScore":10,"interiorModernity":9,"curbAppeal":10,"qualityTier":"Luxury","highlights":["Floor-to-ceiling windows","Robot butler","Panoramic city views"],"redFlags":[],"reasoning":"Cutting-edge design with premium tech integration and unparalleled cityscape vistas. Vibe: futuristic minimalist. Lighting: adjustable ambience. Perceived size: compact.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000006',
@@ -479,7 +479,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"premium","condition_score":8,"interior_modernity_score":7,"curb_appeal_score":8,"notable_features":[Ocean view,Indoor-outdoor flow,Infinity pool],"red_flags":[],"aesthetic_vibe":"coastal_modern","estimated_size_bracket":"spacious","lighting_quality":"bright afternoon sun","visual_justification":"Australian coastal living with premium finishes and entertainers-friendly layout.","confidence":"high"}'
+  '{"conditionScore":8,"interiorModernity":7,"curbAppeal":8,"qualityTier":"Premium","highlights":["Ocean view","Indoor-outdoor flow","Infinity pool"],"redFlags":[],"reasoning":"Australian coastal living with premium finishes and entertainers-friendly layout. Vibe: coastal modern. Lighting: bright afternoon sun. Perceived size: spacious.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000007',
@@ -510,7 +510,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"premium","condition_score":8,"interior_modernity_score":7,"curb_appeal_score":7,"notable_features":[Courtyard garden,Rooftop terrace,Close to Gaudi],"red_flags":[],"aesthetic_vibe":"bohemian_chic","estimated_size_bracket":"medium","lighting_quality":"bright Mediterranean light","visual_justification":"Spanish urban living with garden space and vibrant city culture nearby.","confidence":"high"}'
+  '{"conditionScore":8,"interiorModernity":7,"curbAppeal":7,"qualityTier":"Premium","highlights":["Courtyard garden","Rooftop terrace","Close to Gaudi"],"redFlags":[],"reasoning":"Spanish urban living with garden space and vibrant city culture nearby. Vibe: bohemian chic. Lighting: bright Mediterranean light. Perceived size: medium.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000008',
@@ -541,7 +541,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"luxury","condition_score":9,"interior_modernity_score":8,"curb_appeal_score":9,"notable_features":[Infinity pool,Persian Gulf view,Smart home],"red_flags":[],"aesthetic_vibe":"modern_luxury","estimated_size_bracket":"spacious","lighting_quality":"bright desert sunlight","visual_justification":"UAE luxury living with premium amenities and iconic waterfront location.","confidence":"high"}'
+  '{"conditionScore":9,"interiorModernity":8,"curbAppeal":9,"qualityTier":"Luxury","highlights":["Infinity pool","Persian Gulf view","Smart home"],"redFlags":[],"reasoning":"UAE luxury living with premium amenities and iconic waterfront location. Vibe: modern luxury. Lighting: bright desert sunlight. Perceived size: spacious.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000009',
@@ -572,7 +572,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"premium","condition_score":7,"interior_modernity_score":6,"curb_appeal_score":6,"notable_features":[Favela view,Tropical garden,Rooftop],"red_flags":[],"aesthetic_vibe":"bohemian","estimated_size_bracket":"medium","lighting_quality":"bright tropical sun","visual_justification":"Brazilian charm with garden space and hillside location with city beach access.","confidence":"high"}'
+  '{"conditionScore":7,"interiorModernity":6,"curbAppeal":6,"qualityTier":"Premium","highlights":["Favela view","Tropical garden","Rooftop"],"redFlags":[],"reasoning":"Brazilian charm with garden space and hillside location with city beach access. Vibe: bohemian. Lighting: bright tropical sun. Perceived size: medium.","confidence":0.85}'
 ),
 (
   '10000000-0000-0000-0000-000000000010',
@@ -603,7 +603,7 @@ values
   'gemini-3.6-flash',
   1,
   'd41d8cd98f00b204e9800998ecf8427e',
-  '{"quality_tier":"premium","condition_score":8,"interior_modernity_score":7,"curb_appeal_score":7,"notable_features":[Original stonework,Courtyard,Close to Hagia Sophia],"red_flags":[],"aesthetic_vibe":"ottoman_revival","estimated_size_bracket":"medium","lighting_quality":"golden hour light","visual_justification":"Istanbul heritage living with central location and historic architecture.","confidence":"high"}'
+  '{"conditionScore":8,"interiorModernity":7,"curbAppeal":7,"qualityTier":"Premium","highlights":["Original stonework","Courtyard","Close to Hagia Sophia"],"redFlags":[],"reasoning":"Istanbul heritage living with central location and historic architecture. Vibe: ottoman revival. Lighting: golden hour light. Perceived size: medium.","confidence":0.85}'
 )
 ;
 

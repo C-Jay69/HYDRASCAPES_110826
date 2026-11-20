@@ -1,16 +1,14 @@
-import { redirect } from 'next/navigation';
-import { getUser } from '@/app/lib/auth';
 import { createClient } from '@/app/lib/supabase/server';
+import { requireDashboardRole } from '@/app/lib/dashboard-auth';
 
 export default async function OwnerBookingsPage() {
-  const { user, profile } = await getUser();
-  if (!user || !profile) redirect('/login');
+  const { user } = await requireDashboardRole(['owner', 'admin']);
 
   const supabase = await createClient();
   const { data: bookings } = await supabase
     .from('bookings')
     .select('id, checkin, checkout, status, total_amount_minor, properties(title)')
-    .eq('property_id', { owner_id: user.id })
+    .eq('owner_id', user.id)
     .order('created_at', { ascending: false });
 
   return (

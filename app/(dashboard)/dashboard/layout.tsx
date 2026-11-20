@@ -6,6 +6,10 @@ import { redirect } from 'next/navigation';
 import type { UserRole } from '@/app/lib/types';
 import { Logo } from '@/app/components/logo';
 
+/**
+ * Only routes that exist may appear here: a nav item that 404s is a dead
+ * button (spec §32). Add the target page in the same change as the link.
+ */
 const NAV: Record<string, { href: string; label: string }[]> = {
   owner: [
     { href: '/dashboard/owner', label: 'Overview' },
@@ -13,20 +17,9 @@ const NAV: Record<string, { href: string; label: string }[]> = {
     { href: '/dashboard/owner/bookings', label: 'Bookings' },
     { href: '/dashboard/owner/payouts', label: 'Payouts' },
   ],
-  host: [
-    { href: '/dashboard/host', label: 'Overview' },
-    { href: '/dashboard/host/applications', label: 'Applications' },
-    { href: '/dashboard/host/stays', label: 'Stays' },
-  ],
-  guest: [
-    { href: '/dashboard/guest', label: 'Overview' },
-    { href: '/dashboard/guest/bookings', label: 'Bookings' },
-  ],
-  admin: [
-    { href: '/dashboard/admin', label: 'Overview' },
-    { href: '/dashboard/admin/moderation', label: 'Moderation' },
-    { href: '/dashboard/admin/payments', label: 'Payments' },
-  ],
+  host: [{ href: '/dashboard/host', label: 'Overview' }],
+  guest: [{ href: '/dashboard/guest', label: 'Overview' }],
+  admin: [{ href: '/dashboard/admin', label: 'Overview' }],
 };
 
 export default async function DashboardLayout({
@@ -56,12 +49,13 @@ export default async function DashboardLayout({
             <Link href="/dashboard" className="flex items-center gap-2">
               <Logo className="h-7 w-auto" />
             </Link>
-            <div className="hidden gap-1 sm:flex">
+            {/* Visible at every width: navigation must work at 375px (spec §4). */}
+            <div className="flex flex-wrap items-center gap-1">
               {navItems.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="rounded-lg px-3 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground"
+                  className="rounded-lg px-2.5 py-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground sm:px-3"
                 >
                   {item.label}
                 </Link>

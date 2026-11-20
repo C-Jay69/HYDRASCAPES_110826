@@ -1001,38 +1001,36 @@ Use controlled image quality.
 
 Vision schema:
 
-quality\_tier:  
-budget | mid\_range | premium | luxury
+NOTE — AMENDMENT 2026-11-20. The schema below replaces the earlier
+quality\_tier / aesthetic\_vibe / lighting\_quality shape. That shape was never
+implemented, and migration `0008_update_vision_config.sql` plus the live
+pipeline ship the shape below. The schema is defined once in code, at
+`app/lib/ai/schemas.ts` (`visionAnalysisSchema`) and mirrored in
+`app/core/entities` as `VisionAnalysisResponse`. Change both together.
 
-condition\_score:  
+qualityTier:  
+Luxury | Premium | Standard | Economy
+
+conditionScore:  
 1–10
 
-interior\_modernity\_score:  
+interiorModernity:  
 1–10
 
-curb\_appeal\_score:  
+curbAppeal:  
 1–10
 
-notable\_features:  
-bounded string array
+highlights:  
+bounded string array, max 5, at most 200 characters each
 
-red\_flags:  
-bounded string array
+redFlags:  
+bounded string array, max 5, at most 200 characters each
 
-aesthetic\_vibe:  
-controlled enum
-
-estimated\_size\_bracket:  
-controlled enum
-
-lighting\_quality:  
-controlled enum
-
-visual\_justification:  
-bounded text
+reasoning:  
+bounded text, max 2000 characters
 
 confidence:  
-low | medium | high
+0–1
 
 Schema version must be stored.
 

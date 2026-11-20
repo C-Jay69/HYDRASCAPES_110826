@@ -1,72 +1,58 @@
 /**
- * OpenRouter Adapter for Clean Architecture
- * adapts the OpenRouter AI service to the core use case interfaces
+ * AI adapter (spec §8).
+ *
+ * Wires the provider-agnostic port to whatever provider the environment
+ * configures. Despite the historical filename there is nothing
+ * OpenRouter-specific here: `AI_BASE_URL` and `AI_MODEL` decide the
+ * destination, and fallbacks are honoured by `aiJson`.
  */
 
-import { type VisionAnalysisResponse } from '@/app/core/entities';
-import { analyzePropertyPhotos, getOpenRouterConfig, getSupabasePublicUrl, type OpenRouterConfig } from '@/app/lib/ai/openrouter';
+import { analyzePropertyPhotos } from '@/app/lib/ai/vision';
+import { activeProvider, AiUnavailableError } from '@/app/lib/ai/structured';
+import { isAiConfigured } from '@/app/lib/ai/provider';
+import type { AiPort } from '@/app/lib/ai/port';
 
-export interface OpenRouterPort {
-  config: OpenRouterConfig;
-  healthCheck: () => Promise<{ healthy: boolean; model: string; message: string }>;
-  analyzePhotos: (imageUrls: string[], customPrompt?: string) => Promise<VisionAnalysisResponse>;
-  getSupabasePublicUrl: (bucket: string, path: string) => string;
-  convertStoragePathsToUrls: (paths: string[], bucket?: string) => string[];
-}
-
-/**
- * Creates an OpenRouter port adapter using the existing lib/ai/openrouter module.
- * This preserves the existing AI behavior while fitting the clean architecture port interface.
- */
-export function createOpenRouterAdapter(): OpenRouterPort {
+export function createAiAdapter(): AiPort {
   return {
-    config: getOpenRouterConfig(),
-    healthCheck: async () => {
-      const result = await checkOpenRouterHealth();
-      return {
-        healthy: result.healthy,
-        model: result.model,
-        message: result.message,
-      };
-    },
-    analyzePhotos: async (imageUrls: string[], customPrompt?) => {
-      if (!imageUrls || imageUrls.length === 0) {
-        throw new Error('At least one image URL is required');
+    isConfigured: () => isAiConfigured(),
+
+    getModel: () => activeProvider()?.model ?? 'unconfigured',
+
+    async healthCheck() {
+      const provider = activeProvider();
+      if (!provider) {
+        return {
+          healthy: false,
+          model: 'unconfigured',
+          message: 'No AI provider is configured (AI_API_KEY / OPENROUTER_API_KEY missing)',
+        };
       }
-      const prompt = customPrompt || buildVisionPrompt();
-      return analyzePropertyPhotos(imageUrls, customPrompt);
+
+      try {
+        const completion = await provider.complete(
+          [{ role: 'user', content: 'Reply with the single word: ok' }],
+          { maxTokens: 5, timeoutMs: 10_000 },
+        );
+        return {
+          healthy: true,
+          model: provider.model,
+          message: `Provider ${provider.id} responded: ${completion.content.slice(0, 40)}`,
+        };
+      } catch (error) {
+        return {
+          healthy: false,
+          model: provider.model,
+          message: error instanceof Error ? error.message : 'Unknown provider error',
+        };
+      }
     },
-    getSupabasePublicUrl: (bucket, path) => getSupabasePublicUrl(bucket, path),
-    convertStoragePathsToUrls: (paths, bucket = 'property-photos') => convertStoragePathsToUrls(paths, bucket),
+
+    async analyzePhotos(imageUrls, options) {
+      if (!isAiConfigured()) throw new AiUnavailableError();
+      return analyzePropertyPhotos(imageUrls, options);
+    },
   };
 }
 
-/**
- * Builds the vision analysis prompt (extracted from openrouter.ts for adapter use)
- */
-function buildVisionPrompt(): string {
-  return `You are an expert property inspector analyzing photos for a co-hosting marketplace.
-Analyze the provided property photos and return a JSON object with the following structure:
-
-{
-  "conditionScore": number (1-10, overall property condition),
-  "interiorModernity": number (1-10, how modern/updated the interior is),
-  "curbAppeal": number (1-10, exterior attractiveness),
-  "qualityTier": "Luxury" | "Premium" | "Standard" | "Economy",
-  "highlights": string[] (key selling points, max 5),
-  "redFlags": string[] (structural/aesthetic concerns, max 5),
-  "reasoning": string (detailed analysis explanation),
-  "confidence": number (0-1, your confidence in this assessment)
-}
-
-Guidelines:
-- Be objective and specific
-- Focus on visible evidence in photos
-- Consider: structural integrity, maintenance, updates, cleanliness, layout, lighting, outdoor space
-- Luxury: High-end finishes, premium appliances, designer touches, exceptional condition
-- Premium: Well-maintained, modern updates, quality materials, above average
-- Standard: Average condition, functional but dated, minor wear visible
-- Economy: Significant wear, outdated, needs repairs/updates, budget-friendly
-
-Return ONLY the JSON object, no additional text.`;
-}
+/** @deprecated Use `createAiAdapter`; kept so older imports keep compiling. */
+export const createOpenRouterAdapter = createAiAdapter;

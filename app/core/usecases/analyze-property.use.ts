@@ -1,92 +1,196 @@
 import type { PropertyGateway } from '@/infrastructure/db/property.gateway';
 import type { VisionAnalysisResponse } from '@/app/core/entities';
-import type { OpenRouterPort } from '@/infrastructure/ai/openrouter.adapter';
+import type { AiPort } from '@/app/lib/ai/port';
+import { applyVisionAdjustment, visionContributionCapPct } from '@/app/lib/pricing/refine';
+
+/**
+ * Resolves private storage object paths to short-lived URLs the model can
+ * fetch. Implemented in `app/lib/storage/signed-urls.ts`.
+ */
+export interface PhotoUrlResolver {
+  signedUrls: (bucket: string, paths: string[]) => Promise<string[]>;
+}
 
 export interface AnalyzePropertyInput {
   propertyId: string;
+  /** Re-run even when the photo set is unchanged. Internal/operational use. */
+  force?: boolean;
 }
 
 export interface AnalyzePropertyOutput {
   analysis: VisionAnalysisResponse;
+  /** True when the stored analysis already matched this photo set. */
+  skipped: boolean;
   property: {
     id: string;
     title: string;
     basePriceMinor: number;
+    suggestedPriceMinor: number;
     currency: string;
     visionStatus: string;
   };
 }
 
+const BUCKET = 'property-photos';
+/** Images per request. Kept small: more images means more latency and cost. */
+const MAX_IMAGES = 6;
+
+/** Deterministic fingerprint of the analysed photo set (spec §9). */
+async function hashPhotoSet(paths: string[]): Promise<string> {
+  const canonical = [...paths].sort().join('|');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 export class AnalyzePropertyUseCase {
   private propertyGateway: PropertyGateway;
-  private aiPort: OpenRouterPort;
+  private aiPort: AiPort;
+  private photoUrls: PhotoUrlResolver;
 
   constructor(
     propertyGateway: PropertyGateway,
-    aiPort: OpenRouterPort
+    aiPort: AiPort,
+    photoUrls: PhotoUrlResolver,
   ) {
     this.propertyGateway = propertyGateway;
     this.aiPort = aiPort;
+    this.photoUrls = photoUrls;
   }
 
   async execute(input: AnalyzePropertyInput): Promise<AnalyzePropertyOutput> {
-    // Fetch property details including photo paths
-    const property = await this.propertyGateway.getById(input.propertyId);
+    if (!this.aiPort.isConfigured()) {
+      throw new Error('AI provider is not configured');
+    }
 
+    const property = await this.propertyGateway.getById(input.propertyId);
     if (!property) {
       throw new Error('Property not found');
     }
 
-    // Get photo paths and convert to public URLs
-    const photoPaths = Array.isArray(property.photos) ? property.photos : [];
-    const imageUrls = photoPaths.map((path: string) => this.aiPort.getSupabasePublicUrl('property-photos', path));
+    // Photo set: gallery paths plus the cover, de-duplicated, order preserved.
+    const photoPaths = Array.from(
+      new Set(
+        [...(Array.isArray(property.photos) ? property.photos : []), property.cover_photo]
+          .filter((path): path is string => typeof path === 'string' && path.length > 0),
+      ),
+    );
 
-    // Add cover photo if it's different from the photos array
-    if (property.cover_photo && !imageUrls.includes(property.cover_photo)) {
-      imageUrls.unshift(this.aiPort.getSupabasePublicUrl('property-photos', property.cover_photo));
-    }
-
-    if (imageUrls.length === 0) {
+    if (photoPaths.length === 0) {
       throw new Error('No property photos found for analysis');
     }
 
-    // Maximum images to analyze
-    const MAX_IMAGES = 6;
-    const imagesToAnalyze = imageUrls.slice(0, MAX_IMAGES);
+    const photosHash = await hashPhotoSet(photoPaths);
+    const unchanged =
+      !input.force &&
+      property.vision_status === 'complete' &&
+      property.vision_photos_hash === photosHash;
 
-    // Perform AI vision analysis
-    const analysis: VisionAnalysisResponse = await this.aiPort.analyzePhotos(imagesToAnalyze);
+    const basePriceMinor = Number(property.base_price_minor ?? 0);
+    const capPct = visionContributionCapPct();
 
-    // Update property record with analysis results
-    await this.propertyGateway.updateVisionAnalysis(input.propertyId, {
-      condition_score: analysis.conditionScore,
-      interior_modernity: analysis.interiorModernity,
-      curb_appeal: analysis.curbAppeal,
-      quality_tier: analysis.qualityTier,
-      highlights: analysis.highlights,
-      red_flags: analysis.redFlags,
-      reasoning: analysis.reasoning,
-      confidence: analysis.confidence,
-      model: process.env.AI_MODEL || 'openrouter',
-      analyzed_at: new Date().toISOString(),
-    }, 'completed' as const);
+    if (unchanged) {
+      const stored = property.vision_analysis as Partial<VisionAnalysisResponse>;
+      return {
+        analysis: stored as VisionAnalysisResponse,
+        skipped: true,
+        property: {
+          id: property.id,
+          title: property.title,
+          basePriceMinor,
+          suggestedPriceMinor: applyVisionAdjustment({
+            basePriceMinor,
+            conditionScore: Number(stored.conditionScore ?? 5.5),
+            qualityTier: stored.qualityTier,
+            maxContributionPct: capPct,
+            minPriceMinor: Number(property.min_price_minor ?? 0),
+            maxPriceMinor: Number(property.max_price_minor ?? 0),
+          }),
+          currency: property.currency,
+          visionStatus: property.vision_status,
+        },
+      };
+    }
 
-    // Calculate AI-adjusted pricing
-    const basePrice = property.base_price_minor ?? 0;
-    const adjustedPrice = Math.round(
-      basePrice * (1 + (analysis.conditionScore / 10) * 0.15)
+    // Signed URLs: the buckets are private, so a public URL would 404 for the model.
+    const imageUrls = (
+      await this.photoUrls.signedUrls(BUCKET, photoPaths.slice(0, MAX_IMAGES))
+    ).filter(Boolean);
+
+    if (imageUrls.length === 0) {
+      await this.propertyGateway.updateVisionAnalysis(
+        input.propertyId,
+        { error: 'no_readable_images' },
+        'failed',
+        { photosHash },
+      );
+      throw new Error('No readable property photos found for analysis');
+    }
+
+    await this.propertyGateway.updateVisionAnalysis(
+      input.propertyId,
+      property.vision_analysis ?? {},
+      'processing',
+      { model: this.aiPort.getModel(), photosHash },
     );
 
-    // Return analysis results
-    return {
-      analysis,
-      property: {
-        id: property.id,
-        title: property.title,
-        basePriceMinor: adjustedPrice,
-        currency: property.currency,
-        visionStatus: 'completed',
-      },
-    };
+    try {
+      const { analysis, meta } = await this.aiPort.analyzePhotos(imageUrls, {
+        maxImages: MAX_IMAGES,
+      });
+
+      await this.propertyGateway.updateVisionAnalysis(
+        input.propertyId,
+        {
+          ...analysis,
+          provider: meta.provider,
+          model: meta.model,
+          schema_version: meta.schemaVersion,
+          analyzed_at: new Date().toISOString(),
+        },
+        'complete',
+        {
+          model: meta.model,
+          schemaVersion: meta.schemaVersion,
+          photosHash,
+        },
+      );
+
+      // Money is computed here, in TypeScript, never by the model (spec §2).
+      const suggestedPriceMinor = applyVisionAdjustment({
+        basePriceMinor,
+        conditionScore: analysis.conditionScore,
+        qualityTier: analysis.qualityTier,
+        maxContributionPct: capPct,
+        minPriceMinor: Number(property.min_price_minor ?? 0),
+        maxPriceMinor: Number(property.max_price_minor ?? 0),
+      });
+
+      return {
+        analysis,
+        skipped: false,
+        property: {
+          id: property.id,
+          title: property.title,
+          basePriceMinor,
+          suggestedPriceMinor,
+          currency: property.currency,
+          visionStatus: 'complete',
+        },
+      };
+    } catch (error) {
+      // A failed analysis must not block the listing (spec §1, §9).
+      await this.propertyGateway.updateVisionAnalysis(
+        input.propertyId,
+        {
+          error: error instanceof Error ? error.message.slice(0, 500) : 'unknown_error',
+          failed_at: new Date().toISOString(),
+        },
+        'failed',
+        { model: this.aiPort.getModel(), photosHash },
+      );
+      throw error;
+    }
   }
 }

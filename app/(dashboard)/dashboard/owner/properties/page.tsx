@@ -1,10 +1,8 @@
-import { redirect } from 'next/navigation';
-import { getUser } from '@/app/lib/auth';
 import { createClient } from '@/app/lib/supabase/server';
+import { requireDashboardRole } from '@/app/lib/dashboard-auth';
 
 export default async function OwnerPropertiesPage() {
-  const { user, profile } = await getUser();
-  if (!user || !profile) redirect('/login');
+  const { user, profile } = await requireDashboardRole(['owner', 'admin']);
 
   const supabase = await createClient();
   const { data: properties } = await supabase
@@ -36,9 +34,17 @@ export default async function OwnerPropertiesPage() {
                     <p className="text-sm font-medium">{property.title}</p>
                     <p className="text-xs text-foreground-faint">{property.status}</p>
                   </div>
-                  <p className="text-sm font-semibold text-teal-300">
-                    {((property.base_price_minor ?? 0) / 100).toFixed(2)}/night
-                  </p>
+                  <div className="flex items-center gap-4">
+                    <p className="text-sm font-semibold text-teal-300">
+                      {((property.base_price_minor ?? 0) / 100).toFixed(2)}/night
+                    </p>
+                    <a
+                      href={`/dashboard/owner/properties/${property.id}/edit`}
+                      className="text-sm text-foreground-muted underline-offset-4 hover:text-foreground hover:underline"
+                    >
+                      Edit
+                    </a>
+                  </div>
                 </li>
               ))}
             </ul>

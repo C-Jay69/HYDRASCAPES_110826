@@ -1,8 +1,6 @@
-import type { PropertyGateway } from '@/infrastructure/db/property.gateway';
+import type { PropertyGateway, NewProperty } from '@/infrastructure/db/property.gateway';
 import type { ProfileGateway } from '@/infrastructure/db/profile.gateway';
-import type { Money } from '@/app/core/entities';
-import type { Property, PropertyState } from '@/app/core/entities';
-import type { OpenRouterPort } from '@/infrastructure/ai/openrouter.adapter';
+import type { Property } from '@/app/core/entities';
 
 export interface CreatePropertyInput {
   title: string;
@@ -26,46 +24,40 @@ export interface CreatePropertyInput {
 
 export interface CreatePropertyOutput {
   property: Property;
-  visionStatus: 'pending' | 'analyzing' | 'completed' | 'failed';
 }
 
+/**
+ * Creates a property draft.
+ *
+ * Deliberately does not touch the AI layer: vision runs asynchronously after
+ * the save so a slow or failing model never blocks the owner (spec §1).
+ */
 export class CreatePropertyUseCase {
   private propertyGateway: PropertyGateway;
   private profileGateway: ProfileGateway;
-  private aiPort: OpenRouterPort;
 
-  constructor(
-    propertyGateway: PropertyGateway,
-    profileGateway: ProfileGateway,
-    aiPort: OpenRouterPort
-  ) {
+  constructor(propertyGateway: PropertyGateway, profileGateway: ProfileGateway) {
     this.propertyGateway = propertyGateway;
     this.profileGateway = profileGateway;
-    this.aiPort = aiPort;
   }
 
   async execute(input: CreatePropertyInput): Promise<CreatePropertyOutput> {
-    // Validate owner exists
     const owner = await this.profileGateway.getById(input.ownerId);
     if (!owner) {
       throw new Error('Owner profile not found');
     }
 
-    // Generate property ID
-    const propertyId = crypto.randomUUID();
-
-    // Create property with pending vision status
     const now = new Date().toISOString();
 
-    const property: Property = {
-      id: propertyId,
+    const property: NewProperty = {
+      id: crypto.randomUUID(),
       owner_id: input.ownerId,
       assigned_host_id: null,
       title: input.title,
-      description: input.description,
+      description: input.description ?? null,
       address_json: input.addressJson,
-      latitude: input.latitude,
-      longitude: input.longitude,
+      latitude: input.latitude ?? null,
+      longitude: input.longitude ?? null,
       bedrooms: input.bedrooms,
       bathrooms: input.bathrooms,
       max_guests: input.maxGuests,
@@ -77,22 +69,12 @@ export class CreatePropertyUseCase {
       cleaning_fee_minor: input.cleaningFeeMinor,
       status: 'draft',
       photos: input.photos,
-      cover_photo: input.coverPhoto,
-      vision_analysis: {},
-      vision_status: 'pending',
+      cover_photo: input.coverPhoto ?? null,
       created_at: now,
       updated_at: now,
     };
 
-    await this.propertyGateway.create(property);
-
-    // TODO: In the full clean architecture, AI analysis would be triggered asynchronously
-    // via a message queue or edge function. For now, we mark it as pending and let
-    // the existing API route handler trigger it when called.
-
-    return {
-      property,
-      visionStatus: 'pending',
-    };
+    const created = await this.propertyGateway.create(property);
+    return { property: created };
   }
 }

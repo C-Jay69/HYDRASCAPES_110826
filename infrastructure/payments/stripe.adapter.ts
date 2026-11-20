@@ -1,73 +1,111 @@
 /**
- * Stripe Adapter for Clean Architecture
- * adapts Stripe webhook handling to the core use case interfaces
+ * Stripe adapter (spec §15, §16).
+ *
+ * Responsibilities: signature verification, idempotency bookkeeping, and
+ * dispatch by event type. Financial effects belong to the application layer;
+ * this module never computes an amount.
  */
 
-import type { Stripe } from 'stripe';
+import Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export interface StripePort {
-  verifyWebhookSignature: (body: string, signature: string, webhookSecret: string) => Promise<Stripe.Event>;
-  isEventProcessed: (eventId: string, supabase: SupabaseClient) => Promise<boolean>;
-  markEventProcessed: (eventId: string, supabase: SupabaseClient) => Promise<void>;
-  handleEvent: (event: Stripe.Event, supabase: SupabaseClient) => Promise<void>;
+/** Only provider handled here. The column exists so others can be added. */
+const PROVIDER = 'stripe';
+/** Postgres unique-violation error code. */
+const UNIQUE_VIOLATION = '23505';
+
+export interface BeginEventInput {
+  id: string;
+  type: string;
+  payloadHash: string;
 }
 
-/**
- * Creates a Stripe port adapter.
- * The actual event processing logic is delegated to a handler function.
- */
-export function createStripeAdapter(): StripePort {
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2023-10-18',
-  });
+export interface StripePort {
+  verifyWebhookSignature: (
+    body: string,
+    signature: string,
+    webhookSecret: string,
+  ) => Stripe.Event;
+  /**
+   * Claims the event for processing. Returns false when this
+   * (provider, event_id) pair was already claimed — a duplicate delivery.
+   * Backed by the table's unique constraint, so it is race-safe.
+   */
+  beginEvent: (event: BeginEventInput) => Promise<boolean>;
+  markEventProcessed: (eventId: string) => Promise<void>;
+  markEventFailed: (eventId: string, errorCode: string) => Promise<void>;
+  /** Applies the event. Must be idempotent on its own as well. */
+  handleEvent: (event: Stripe.Event) => Promise<void>;
+}
+
+export function createStripeAdapter(supabase: SupabaseClient): StripePort {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY is not configured');
+  }
+  const stripe = new Stripe(secretKey);
+
+  const events = () => supabase.from('processed_webhook_events');
 
   return {
-    verifyWebhookSignature: async (body: string, signature: string, webhookSecret: string) => {
+    verifyWebhookSignature(body, signature, webhookSecret) {
       return stripe.webhooks.constructEvent(body, signature, webhookSecret);
     },
-    isEventProcessed: async (eventId: string, supabase: SupabaseClient) => {
-      const { data, error } = await supabase
-        .from('processed_webhook_events')
-        .select('id')
-        .eq('event_id', eventId)
-        .single();
 
-      if (error && error.error !== 'empty') {
-        console.error('Supabase query error checking webhook event:', error);
-      }
-      return !!data;
+    async beginEvent(event) {
+      const { error } = await events().insert({
+        provider: PROVIDER,
+        event_id: event.id,
+        event_type: event.type,
+        payload_hash: event.payloadHash,
+        processing_status: 'processing',
+      });
+
+      if (!error) return true;
+
+      if (error.code === UNIQUE_VIOLATION) return false;
+
+      // Anything else is a real failure: surface it so the caller returns 5xx
+      // and Stripe retries, rather than silently dropping the event.
+      throw new Error(`Failed to record webhook event ${event.id}: ${error.message}`);
     },
-    markEventProcessed: async (eventId: string, supabase: SupabaseClient) => {
-      const { error } = await supabase
-        .from('processed_webhook_events')
-        .upsert({ event_id: eventId }, { upsert: true });
+
+    async markEventProcessed(eventId) {
+      const { error } = await events()
+        .update({ processing_status: 'processed', processed_at: new Date().toISOString() })
+        .eq('provider', PROVIDER)
+        .eq('event_id', eventId);
 
       if (error) {
-        console.error('Failed to mark webhook event as processed:', error);
+        console.error(`Failed to mark webhook event ${eventId} processed:`, error);
       }
     },
-    handleEvent: async (event: Stripe.Event, supabase: SupabaseClient) => {
-      // Process event by type - delegates to application logic
+
+    async markEventFailed(eventId, errorCode) {
+      const { error } = await events()
+        .update({ processing_status: 'failed', error_code: errorCode.slice(0, 200) })
+        .eq('provider', PROVIDER)
+        .eq('event_id', eventId);
+
+      if (error) {
+        console.error(`Failed to mark webhook event ${eventId} failed:`, error);
+      }
+    },
+
+    async handleEvent(event) {
+      // Event handlers are added per build phase. Until a handler exists the
+      // event is acknowledged and recorded, never partially applied.
       switch (event.type) {
-        case 'customer.subscription.created':
-          console.log('Subscription created:', event.data.object.id);
-          break;
-
-        case 'customer.subscription.updated':
-          console.log('Subscription updated:', event.data.object.id);
-          break;
-
-        case 'customer.subscription.deleted':
-          console.log('Subscription deleted:', event.data.object.id);
-          break;
-
         case 'payment_intent.succeeded':
-          console.log('Payment succeeded:', event.data.object.id);
+        case 'payment_intent.payment_failed':
+        case 'charge.refunded':
+        case 'transfer.created':
+        case 'payout.paid':
+        case 'account.updated':
+          console.log(`Stripe event ${event.id} (${event.type}) recorded`);
           break;
-
         default:
-          console.log(`Unhandled event type: ${event.type}`);
+          console.log(`Unhandled Stripe event type: ${event.type}`);
           break;
       }
     },
