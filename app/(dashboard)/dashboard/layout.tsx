@@ -22,6 +22,9 @@ const NAV: Record<string, { href: string; label: string }[]> = {
   admin: [{ href: '/dashboard/admin', label: 'Overview' }],
 };
 
+/** Public discovery is useful from every dashboard, for every role. */
+const BROWSE_LINK = { href: '/search', label: 'Browse stays' };
+
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -32,7 +35,7 @@ export default async function DashboardLayout({
   }
 
   const role: UserRole = profile.role ?? 'guest';
-  const navItems = NAV[role] ?? NAV.guest;
+  const navItems = [...(NAV[role] ?? NAV.guest), BROWSE_LINK];
 
   async function handleSignOut() {
     'use server';
