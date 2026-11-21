@@ -103,7 +103,8 @@ Optional unless you use the feature:
 | `AI_MODEL` | Vision-capable model id. Configuration, never code |
 | `AI_BASE_URL`, `AI_FALLBACK_{1,2}_*` | Any OpenAI-compatible endpoint + fallbacks |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Webhook endpoint only, until Phase 3 |
-| `INTERNAL_API_TOKEN` | Machine-to-machine calls (n8n), Phase 6 |
+| `INTERNAL_API_TOKEN` | Machine-to-machine calls for the schedulers (n8n later) |
+| `MCP_API_KEY` | Bearer key for the read-only `/api/mcp/*` API used by `mcp-server/` |
 
 ### 4. Run
 
@@ -266,6 +267,8 @@ app/
   bookings/[id]/     Trip detail, policy, cancellation
   search/            Public discovery
 infrastructure/      Adapters implementing the ports the core depends on
+mcp-server/          Read-only MCP server exposing this data to Claude over stdio
+                     (see mcp-server/README.md)
 legacy/              Earlier prototype (Firebase). Excluded from build, lint and tsc.
                      Kept for reference only — do not import from it.
 ```
@@ -298,6 +301,9 @@ stays in the database itself.
   capped. The browser-declared MIME type is not trusted on its own.
 - **Rate limits are durable** (Postgres counters), so they hold across serverless
   instances: vision 20/hr, uploads 100/hr, property writes 120/hr, per user.
+- **MCP access is a separate, read-only key.** `/api/mcp/*` exposes fixed queries (no
+  arbitrary SQL) behind a constant-time bearer check; there are no write tools, so a
+  prompt-injected tool call cannot move money.
 - **CSP and security headers** are set in `next.config.ts`.
 - `.env`, `.env.local` and build output are gitignored. Only `.env.example` is tracked.
 

@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
   '/api/auth',
   '/api/webhooks',
   '/api/internal',
+  '/api/mcp',
   '/auth',
   '/property',
   '/search',
