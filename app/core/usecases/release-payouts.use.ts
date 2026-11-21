@@ -26,6 +26,8 @@ export interface ReleasePayoutsOutput {
   examined: number;
   released: string[];
   skipped: ReleaseSkip[];
+  /** Payouts that failed unexpectedly; the run continues past them. */
+  errors: ReleaseSkip[];
 }
 
 /**
@@ -49,47 +51,61 @@ export class ReleasePayoutsUseCase {
     const now = input.now ?? new Date();
 
     if (!this.connect.isConfigured()) {
-      return { configured: false, examined: 0, released: [], skipped: [] };
+      return { configured: false, examined: 0, released: [], skipped: [], errors: [] };
     }
 
     const due = (await this.payouts.listDue(now)).filter((payout) => payoutIsDue(payout, now));
 
     const released: string[] = [];
     const skipped: ReleaseSkip[] = [];
+    const errors: ReleaseSkip[] = [];
 
     for (const payout of due) {
-      const working = await this.ensureReleasable(payout, now);
-      if (!working) continue;
+      // One bad payout (insufficient platform balance, a Stripe error) must not
+      // stop every payout behind it in the queue.
+      try {
+        const working = await this.ensureReleasable(payout, now);
+        if (!working) continue;
 
-      let blocked: string | null = null;
-      let current: Payout = working;
+        let blocked: string | null = null;
+        let current: Payout = working;
 
-      for (const slot of pendingTransfers(current)) {
-        const result = await this.transferSlot(current, slot);
-        if (result.kind === 'transferred') {
-          current = result.payout;
-        } else {
-          blocked = result.reason;
-          break;
+        for (const slot of pendingTransfers(current)) {
+          const result = await this.transferSlot(current, slot);
+          if (result.kind === 'transferred') {
+            current = result.payout;
+          } else {
+            blocked = result.reason;
+            break;
+          }
         }
-      }
 
-      if (blocked) {
-        await this.payouts.updateStatus(current.id, 'releasable', { failure_reason: blocked });
-        skipped.push({ payoutId: current.id, reason: blocked });
-        continue;
-      }
+        if (blocked) {
+          await this.payouts.updateStatus(current.id, 'releasable', { failure_reason: blocked });
+          skipped.push({ payoutId: current.id, reason: blocked });
+          continue;
+        }
 
-      if (isFullyTransferred(current)) {
-        await this.payouts.updateStatus(current.id, 'released', {
-          released_at: new Date().toISOString(),
-          failure_reason: null,
-        });
-        released.push(current.id);
+        if (isFullyTransferred(current)) {
+          await this.payouts.updateStatus(current.id, 'released', {
+            released_at: new Date().toISOString(),
+            failure_reason: null,
+          });
+          released.push(current.id);
+        }
+      } catch (error) {
+        const reason =
+          error instanceof Error ? error.message.slice(0, 200) : 'unknown release error';
+        console.error(`Payout release failed for ${payout.id}:`, error);
+        errors.push({ payoutId: payout.id, reason });
+        // Leave it releasable so the next run retries; nothing is lost.
+        await this.payouts
+          .updateStatus(payout.id, 'releasable', { failure_reason: 'release_failed' })
+          .catch(() => undefined);
       }
     }
 
-    return { configured: true, examined: due.length, released, skipped };
+    return { configured: true, examined: due.length, released, skipped, errors };
   }
 
   /** held -> releasable, once the release time has arrived. */
@@ -113,7 +129,7 @@ export class ReleasePayoutsUseCase {
     if (!profile.stripe_connect_id) return { kind: 'blocked', reason: `${slot}_not_onboarded` };
 
     const status = await this.connect.accountStatus(profile.stripe_connect_id);
-    if (!status.payoutsEnabled) return { kind: 'blocked', reason: `${slot}_account_unverified` };
+    if (!status.transfersEnabled) return { kind: 'blocked', reason: `${slot}_account_unverified` };
 
     const group = transferGroup(payout.booking_id);
 

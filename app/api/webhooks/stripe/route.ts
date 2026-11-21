@@ -65,6 +65,7 @@ export async function POST(request: Request) {
     const apply = new ApplyStripeEventUseCase(
       bookingGateway,
       new ConfirmBookingUseCase(bookingGateway, payoutGateway),
+      adapter,
     );
 
     const result = await apply.execute({

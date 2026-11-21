@@ -1,5 +1,6 @@
 import type { BookingGateway } from '@/infrastructure/db/booking.gateway';
 import type { ConfirmBookingUseCase } from '@/app/core/usecases/confirm-booking.use';
+import type { RefundPort } from '@/app/core/usecases/cancel-booking.use';
 import type { Booking } from '@/app/core/entities';
 
 /**
@@ -26,15 +27,21 @@ export class ApplyStripeEventUseCase {
   constructor(
     private readonly bookings: BookingGateway,
     private readonly confirmBooking: ConfirmBookingUseCase,
+    private readonly refunds: RefundPort | null = null,
   ) {}
 
   async execute(event: StripeEventLike): Promise<ApplyEventResult> {
     switch (event.type) {
       case 'checkout.session.completed': {
         const object = event.data.object;
-        const bookingId = metadataBookingId(object);
-        if (!bookingId) return ignored('checkout.session.completed without booking_id');
-        return this.confirm(bookingId, paymentIntentIdOf(object));
+        const booking = await this.bookingFor(object);
+        if (!booking) return ignored('checkout.session.completed without a known booking');
+        return this.handlePaid({
+          booking,
+          paymentIntentId: paymentIntentIdOf(object),
+          paidTotalMinor: numberField(object.amount_total),
+          taxMinor: numberField(nested(object, 'total_details', 'amount_tax')),
+        });
       }
 
       case 'payment_intent.succeeded': {
@@ -42,7 +49,29 @@ export class ApplyStripeEventUseCase {
         const booking =
           (await this.bookingFor(object)) ?? (await this.byIntentId(object.id));
         if (!booking) return ignored('payment_intent.succeeded for unknown booking');
-        return this.confirm(booking.id, String(object.id));
+        return this.handlePaid({
+          booking,
+          paymentIntentId: String(object.id),
+          paidTotalMinor: numberField(object.amount_received) ?? numberField(object.amount),
+          taxMinor: null,
+        });
+      }
+
+      case 'checkout.session.expired': {
+        // The session died before payment: release the dates instead of leaving
+        // a hold that can never be paid.
+        const booking = await this.bookingFor(event.data.object);
+        if (!booking) return ignored('checkout.session.expired for unknown booking');
+        if (booking.status !== 'pending_payment') {
+          return ignored(`booking ${booking.id} is already ${booking.status}`);
+        }
+        const cancelled = await this.bookings.transition(booking.id, ['pending_payment'], 'cancelled', {
+          cancelled_at: new Date().toISOString(),
+          refund_amount_minor: 0,
+        });
+        return cancelled
+          ? { outcome: 'handled', detail: `booking ${booking.id} released (session expired)` }
+          : ignored(`booking ${booking.id} changed concurrently`);
       }
 
       case 'payment_intent.payment_failed': {
@@ -111,6 +140,79 @@ export class ApplyStripeEventUseCase {
     };
   }
 
+  /**
+   * Payment landed. If the booking is still live it is confirmed (with the
+   * actual charged amount, which may include automatic tax). If it was already
+   * cancelled — typically a session that expired after the hold — the guest is
+   * refunded in full rather than left paying for nothing.
+   */
+  private async handlePaid(input: {
+    booking: Booking;
+    paymentIntentId: string | null;
+    paidTotalMinor: number | null;
+    taxMinor: number | null;
+  }): Promise<ApplyEventResult> {
+    const { booking, paymentIntentId, paidTotalMinor, taxMinor } = input;
+
+    if (booking.status === 'cancelled' || booking.status === 'refunded') {
+      return this.refundLatePayment(booking, paymentIntentId, paidTotalMinor);
+    }
+
+    const result = await this.confirmBooking.execute({
+      bookingId: booking.id,
+      paymentIntentId,
+      paidTotalMinor,
+      taxMinor,
+    });
+
+    return {
+      outcome: 'handled',
+      detail: result.changed
+        ? `booking ${booking.id} confirmed`
+        : `booking ${booking.id} was already confirmed`,
+    };
+  }
+
+  private async refundLatePayment(
+    booking: Booking,
+    paymentIntentId: string | null,
+    paidTotalMinor: number | null,
+  ): Promise<ApplyEventResult> {
+    if (booking.status === 'refunded') {
+      return ignored(`booking ${booking.id} was already refunded`);
+    }
+
+    const amount = Math.max(0, Math.trunc(paidTotalMinor ?? Number(booking.total_amount_minor)));
+
+    if (!this.refunds || !paymentIntentId) {
+      // Record the exposure so an operator can refund manually; do not pretend.
+      await this.bookings.update(booking.id, { refund_amount_minor: amount });
+      console.error(
+        `Late payment on cancelled booking ${booking.id} needs a manual refund of ${amount}`,
+      );
+      return { outcome: 'handled', detail: `manual refund required for ${booking.id}` };
+    }
+
+    try {
+      await this.refunds.refund(paymentIntentId, amount, `refund:late:${booking.id}`);
+    } catch (error) {
+      console.error(`Automatic late-payment refund failed for ${booking.id}:`, error);
+      await this.bookings.update(booking.id, { refund_amount_minor: amount });
+      return { outcome: 'handled', detail: `manual refund required for ${booking.id}` };
+    }
+
+    const updated = await this.bookings.transition(booking.id, ['cancelled'], 'refunded', {
+      refund_amount_minor: amount,
+    });
+
+    return {
+      outcome: 'handled',
+      detail: updated
+        ? `booking ${booking.id} was cancelled before payment; ${amount} refunded`
+        : `booking ${booking.id} refunded, status not moved`,
+    };
+  }
+
   private async bookingFor(object: Record<string, unknown>): Promise<Booking | null> {
     const bookingId = metadataBookingId(object);
     return bookingId ? this.bookings.getById(bookingId) : null;
@@ -134,6 +236,15 @@ function metadataBookingId(object: Record<string, unknown>): string | null {
     if (typeof id === 'string' && id.length > 0) return id;
   }
   return null;
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : null;
+}
+
+function nested(object: Record<string, unknown>, key: string, field: string): unknown {
+  const inner = object[key];
+  return inner && typeof inner === 'object' ? (inner as Record<string, unknown>)[field] : undefined;
 }
 
 function paymentIntentIdOf(object: Record<string, unknown>): string | null {

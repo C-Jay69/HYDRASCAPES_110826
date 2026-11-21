@@ -7,7 +7,11 @@ import {
 } from '../app/lib/bookings/state';
 import { buildQuote, nightsBetween, QuoteError } from '../app/lib/bookings/quote';
 import { calculateRefund } from '../app/lib/bookings/cancellation';
-import { computeSettlement, DEFAULT_SPLIT } from '../app/lib/bookings/settlement';
+import {
+  computeSettlement,
+  estimateProcessingFee,
+  DEFAULT_SPLIT,
+} from '../app/lib/bookings/settlement';
 import { getCancellationPolicy, snapshotPolicy, policyFromSnapshot } from '../app/lib/bookings/policies';
 
 describe('booking state machine', () => {
@@ -137,10 +141,22 @@ describe('cancellation', () => {
 });
 
 describe('settlement', () => {
+  it('deducts the processing fee before splitting', () => {
+    const s = computeSettlement({ totalMinor: 35000, split: DEFAULT_SPLIT, hasHost: true });
+    expect(s.processingFeeMinor).toBe(estimateProcessingFee(35000));
+    expect(s.settlementBaseMinor).toBe(35000 - s.processingFeeMinor);
+    expect(
+      s.ownerAmountMinor + s.hostAmountMinor + s.platformAmountMinor,
+    ).toBe(s.settlementBaseMinor);
+  });
+
   it('reconciles exactly to the settlement base', () => {
-    for (const total of [1, 99, 100, 50000, 1234567]) {
+    for (const total of [100, 1000, 50000, 1234567]) {
       const s = computeSettlement({ totalMinor: total, split: DEFAULT_SPLIT, hasHost: true });
-      expect(s.ownerAmountMinor + s.hostAmountMinor + s.platformAmountMinor).toBe(total);
+      expect(s.ownerAmountMinor + s.hostAmountMinor + s.platformAmountMinor).toBe(
+        s.settlementBaseMinor,
+      );
+      expect(s.settlementBaseMinor + s.processingFeeMinor).toBe(total);
       expect(s.ownerAmountMinor).toBeGreaterThanOrEqual(0);
     }
   });
@@ -160,3 +176,79 @@ describe('settlement', () => {
     expect(s.ownerPct + s.hostPct + s.platformPct).toBe(100);
   });
 });
+
+describe('processing fee estimate', () => {
+  it('applies basis points plus the fixed component', () => {
+    // 2.90% of 10,000 = 290, plus 30 fixed.
+    expect(estimateProcessingFee(10000, { bps: 290, fixedMinor: 30 })).toBe(320);
+  });
+
+  it('never consumes more than half the charge', () => {
+    const tiny = estimateProcessingFee(100, { bps: 290, fixedMinor: 30 });
+    expect(tiny).toBeLessThanOrEqual(50);
+  });
+
+  it('is zero for a zero charge', () => {
+    expect(estimateProcessingFee(0)).toBe(0);
+  });
+
+  it('protects the platform share on small bookings', () => {
+    // A 3% platform fee on 1,000 minor units is 30; the estimated fee is larger,
+    // which is exactly the margin problem the estimate exists to expose.
+    const s = computeSettlement({
+      totalMinor: 1000,
+      split: DEFAULT_SPLIT,
+      hasHost: false,
+      feeConfig: { bps: 290, fixedMinor: 30 },
+    });
+    expect(s.processingFeeMinor).toBeGreaterThan((1000 * 3) / 100);
+    expect(s.settlementBaseMinor).toBe(1000 - s.processingFeeMinor);
+  });
+
+  it('never distributes collected tax', () => {
+    const total = 100000;
+    const tax = 10000;
+    const s = computeSettlement({
+      totalMinor: total,
+      taxMinor: tax,
+      split: DEFAULT_SPLIT,
+      hasHost: true,
+    });
+
+    expect(s.taxMinor).toBe(tax);
+    expect(s.settlementBaseMinor).toBe(total - tax - s.processingFeeMinor);
+    expect(
+      s.ownerAmountMinor + s.hostAmountMinor + s.platformAmountMinor,
+    ).toBe(s.settlementBaseMinor);
+  });
+
+  it('estimates the fee on the pre-tax amount', () => {
+    const withoutTax = computeSettlement({ totalMinor: 100000, split: DEFAULT_SPLIT, hasHost: false });
+    const withTax = computeSettlement({
+      totalMinor: 100000,
+      taxMinor: 20000,
+      split: DEFAULT_SPLIT,
+      hasHost: false,
+    });
+    // Fee is charged on 80,000 rather than 100,000, so it is strictly smaller.
+    expect(withTax.processingFeeMinor).toBeLessThan(withoutTax.processingFeeMinor);
+  });
+
+  it('rejects tax larger than the charge', () => {
+    expect(() =>
+      computeSettlement({ totalMinor: 1000, taxMinor: 2000, split: DEFAULT_SPLIT, hasHost: false }),
+    ).toThrow(/Tax exceeds/);
+  });
+
+  it('accepts an explicit fee override', () => {
+    const s = computeSettlement({
+      totalMinor: 10000,
+      split: DEFAULT_SPLIT,
+      hasHost: false,
+      processingFeeMinor: 500,
+    });
+    expect(s.processingFeeMinor).toBe(500);
+    expect(s.settlementBaseMinor).toBe(9500);
+  });
+});
+

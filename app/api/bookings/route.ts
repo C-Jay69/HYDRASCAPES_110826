@@ -9,6 +9,7 @@ import { CreateBookingUseCase } from '@/app/core/usecases/create-booking.use';
 import { ConfirmBookingUseCase } from '@/app/core/usecases/confirm-booking.use';
 import { createStripeAdapter, stripeIsConfigured } from '@/infrastructure/payments/stripe.adapter';
 import { createBookingSchema, formatIssues } from '@/app/lib/bookings/schema';
+import { HOLD_MINUTES, checkoutExpiresAt } from '@/app/lib/bookings/holds';
 import { bookingErrorResponse } from '@/app/lib/bookings/http';
 
 export const dynamic = 'force-dynamic';
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     // Release abandoned checkouts before they can look like availability.
     // Best-effort: a missing function (older migration set) must not break booking.
     try {
-      await service.rpc('expire_stale_pending_bookings', { p_minutes: 15 });
+      await service.rpc('expire_stale_pending_bookings', { p_minutes: HOLD_MINUTES });
     } catch (expireError) {
       console.warn('Could not expire stale pending bookings:', expireError);
     }
@@ -92,6 +93,9 @@ export async function POST(request: Request) {
         guestEmail: user.email ?? profile.email,
         successUrl: `${appUrl}/bookings/${booking.id}?payment=success`,
         cancelUrl: `${appUrl}/book/${property.id}?payment=cancelled`,
+        // The session must expire before the hold does (Stripe plan review #1).
+        expiresAt: checkoutExpiresAt(),
+        automaticTax: process.env.STRIPE_TAX_ENABLED !== 'false',
       });
 
       return NextResponse.json(

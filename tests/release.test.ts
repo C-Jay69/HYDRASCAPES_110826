@@ -15,6 +15,7 @@ import { SupabaseProfileGateway } from '../infrastructure/db/profile.gateway';
 import { ConfirmBookingUseCase } from '../app/core/usecases/confirm-booking.use';
 import { ReleasePayoutsUseCase } from '../app/core/usecases/release-payouts.use';
 import { AdvanceBookingsUseCase } from '../app/core/usecases/advance-bookings.use';
+import { CancelBookingUseCase } from '../app/core/usecases/cancel-booking.use';
 import type { ConnectPort, CreateTransferInput } from '../app/lib/payments/connect';
 import type { TransferSlot } from '../app/lib/payments/release';
 
@@ -29,14 +30,20 @@ const ACCOUNT = 'acct_test_owner_release';
 class FakeConnect implements ConnectPort {
   configured = true;
   unverified = new Set<string>();
+  createdCountries: string[] = [];
+  /** transfer groups whose createTransfer should throw (e.g. insufficient balance). */
+  failGroups = new Set<string>();
   transfers: { id: string; group: string; slot: TransferSlot; amount: number }[] = [];
   private counter = 0;
+  // Unique across instances: transfer ids are unique in the payouts table.
+  private readonly runId = Math.random().toString(36).slice(2, 8);
 
   isConfigured() {
     return this.configured;
   }
 
-  async createAccount() {
+  async createAccount(input: { email: string; country: string }) {
+    this.createdCountries.push(input.country);
     return { id: 'acct_created' };
   }
 
@@ -45,16 +52,32 @@ class FakeConnect implements ConnectPort {
   }
 
   async accountStatus(accountId: string) {
-    return { chargesEnabled: true, payoutsEnabled: !this.unverified.has(accountId) };
+    return { chargesEnabled: true, transfersEnabled: !this.unverified.has(accountId) };
   }
 
   async findTransfer(group: string, slot: TransferSlot) {
     return this.transfers.find((t) => t.group === group && t.slot === slot)?.id ?? null;
   }
 
+  reversals: { transferId: string; amount: number; key: string }[] = [];
+  refunds: { paymentIntentId: string; amount: number; key: string }[] = [];
+
+  async refund(paymentIntentId: string, amountMinor: number, idempotencyKey: string) {
+    this.refunds.push({ paymentIntentId, amount: amountMinor, key: idempotencyKey });
+    return { id: `re_test_${this.runId}_${this.refunds.length}`, status: 'succeeded' };
+  }
+
+  async reverseTransfer(transferId: string, amountMinor: number, idempotencyKey: string) {
+    this.reversals.push({ transferId, amount: amountMinor, key: idempotencyKey });
+    return { id: `trr_test_${this.runId}_${this.reversals.length}` };
+  }
+
   async createTransfer(input: CreateTransferInput) {
+    if (this.failGroups.has(input.transferGroup)) {
+      throw new Error('insufficient funds');
+    }
     this.counter += 1;
-    const id = `tr_test_${this.counter}`;
+    const id = `tr_test_${this.runId}_${this.counter}`;
     this.transfers.push({
       id,
       group: input.transferGroup,
@@ -234,5 +257,75 @@ describe('booking lifecycle advancement', () => {
     expect(result.advanced.some((a) => a.bookingId === 'c2000000-0000-4000-8000-000000000001')).toBe(
       false,
     );
+  });
+});
+
+
+describe('refunds after a payout was released', () => {
+  it('reverses the payee transfer when cancelling a released booking', async () => {
+    const bookingId = 'c5000000-0000-4000-8000-000000000001';
+    await makeConfirmedBooking(bookingId, { checkin: '2033-02-10', checkout: '2033-02-13' });
+    const payout = await makeDue(bookingId);
+
+    const connect = new FakeConnect();
+    const released = await new ReleasePayoutsUseCase(payouts, profiles, connect).execute();
+    expect(released.released).toContain(payout.id);
+
+    const cancel = new CancelBookingUseCase(bookings, payouts, connect, connect);
+    const result = await cancel.execute({ bookingId, actorId: IDS.alice, actorRole: 'guest' });
+
+    expect(result.refundMinor).toBeGreaterThan(0);
+    expect(connect.reversals).toHaveLength(1);
+    // A full refund exceeds the payee's share, so the payee returns what it got.
+    expect(connect.reversals[0].amount).toBe(Number(payout.owner_amount_minor));
+    expect(connect.reversals[0].key).toBe(`booking:${bookingId}:owner:reversal`);
+
+    const after = await payouts.getByBookingId(bookingId);
+    expect(after?.reversed_owner_minor).toBe(Number(payout.owner_amount_minor));
+    expect((after?.reversal_reference as Record<string, unknown>).owner).toMatch(/^trr_test_/);
+    expect(after?.status).toBe('released');
+  });
+
+  it('does not reverse anything when the policy refunds nothing', async () => {
+    const bookingId = 'c5000000-0000-4000-8000-000000000002';
+    const inTwoDays = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+    const inFiveDays = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
+
+    await makeConfirmedBooking(bookingId, { checkin: inTwoDays, checkout: inFiveDays });
+    const payout = await makeDue(bookingId);
+
+    const connect = new FakeConnect();
+    await new ReleasePayoutsUseCase(payouts, profiles, connect).execute();
+
+    const cancel = new CancelBookingUseCase(bookings, payouts, connect, connect);
+    const result = await cancel.execute({ bookingId, actorId: IDS.alice, actorRole: 'guest' });
+
+    expect(result.refundMinor).toBe(0);
+    expect(connect.reversals).toHaveLength(0);
+  });
+});
+
+describe('release failure isolation', () => {
+  it('keeps paying other payouts when one transfer fails', async () => {
+    const failing = 'c6000000-0000-4000-8000-000000000001';
+    const healthy = 'c6000000-0000-4000-8000-000000000002';
+
+    await makeConfirmedBooking(failing, { checkin: '2033-05-10', checkout: '2033-05-13' });
+    await makeConfirmedBooking(healthy, { checkin: '2033-06-10', checkout: '2033-06-13' });
+    const failingPayout = await makeDue(failing);
+    const healthyPayout = await makeDue(healthy);
+
+    const connect = new FakeConnect();
+    connect.failGroups.add(`booking:${failing}`);
+
+    const result = await new ReleasePayoutsUseCase(payouts, profiles, connect).execute();
+
+    expect(result.released).toContain(healthyPayout.id);
+    expect(result.released).not.toContain(failingPayout.id);
+    expect(result.errors.some((e) => e.payoutId === failingPayout.id)).toBe(true);
+
+    const stuck = await payouts.getByBookingId(failing);
+    expect(stuck?.status).toBe('releasable');
+    expect(stuck?.failure_reason).toBe('release_failed');
   });
 });

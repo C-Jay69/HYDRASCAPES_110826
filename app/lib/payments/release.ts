@@ -54,3 +54,62 @@ export function transferAmountMinor(payout: Payout, slot: TransferSlot): number 
     ? Math.trunc(Number(payout.owner_amount_minor))
     : Math.trunc(Number(payout.host_amount_minor));
 }
+
+export interface ReversalAllocation {
+  slot: TransferSlot;
+  transferId: string;
+  amountMinor: number;
+}
+
+/**
+ * Splits a refund across already-transferred slots (spec §15.1; Stripe plan
+ * review). Payees give back only what they received; the platform covers its
+ * own share and any rounding remainder. Returns [] when nothing was paid out.
+ */
+export function planReversals(payout: Payout, refundMinor: number): ReversalAllocation[] {
+  const refund = Math.max(0, Math.trunc(refundMinor));
+  if (refund === 0) return [];
+
+  const candidates: { slot: TransferSlot; transferId: string; available: number }[] = [];
+  if (payout.stripe_transfer_owner_id) {
+    candidates.push({
+      slot: 'owner',
+      transferId: payout.stripe_transfer_owner_id,
+      available: Math.max(0, Number(payout.owner_amount_minor) - Number(payout.reversed_owner_minor ?? 0)),
+    });
+  }
+  if (payout.stripe_transfer_host_id) {
+    candidates.push({
+      slot: 'host',
+      transferId: payout.stripe_transfer_host_id,
+      available: Math.max(0, Number(payout.host_amount_minor) - Number(payout.reversed_host_minor ?? 0)),
+    });
+  }
+
+  const usable = candidates.filter((candidate) => candidate.available > 0);
+  const pool = usable.reduce((sum, candidate) => sum + candidate.available, 0);
+  if (pool === 0) return [];
+
+  const capped = Math.min(refund, pool);
+  const allocations: ReversalAllocation[] = [];
+  let allocated = 0;
+
+  usable.forEach((candidate, index) => {
+    const isLast = index === usable.length - 1;
+    const share = isLast
+      ? capped - allocated
+      : Math.floor((capped * candidate.available) / pool);
+    const amount = Math.min(Math.max(share, 0), candidate.available);
+    if (amount > 0) {
+      allocations.push({ slot: candidate.slot, transferId: candidate.transferId, amountMinor: amount });
+      allocated += amount;
+    }
+  });
+
+  return allocations;
+}
+
+/** Idempotency key for a clawback, distinct from the original transfer key. */
+export function reversalIdempotencyKey(bookingId: string, slot: TransferSlot): string {
+  return `booking:${bookingId}:${slot}:reversal`;
+}

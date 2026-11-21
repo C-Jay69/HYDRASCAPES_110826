@@ -32,7 +32,7 @@ export async function POST(
 
     const stripe = stripeIsConfigured() ? createStripeAdapter(service) : null;
 
-    const useCase = new CancelBookingUseCase(bookingGateway, payoutGateway, stripe);
+    const useCase = new CancelBookingUseCase(bookingGateway, payoutGateway, stripe, stripe);
     const result = await useCase.execute({
       bookingId: id,
       actorId: user.id,

@@ -239,7 +239,10 @@ describe('payment confirmation idempotency', () => {
     expect(payout).not.toBeNull();
     expect(
       payout!.owner_amount_minor + payout!.host_amount_minor + payout!.platform_amount_minor,
-    ).toBe(25000);
+    ).toBe(payout!.settlement_base_minor);
+    // Gross = distributable + the processing fee we set aside for Stripe.
+    expect(payout!.settlement_base_minor + payout!.processing_fee_minor).toBe(25000);
+    expect(payout!.processing_fee_minor).toBeGreaterThan(0);
     expect(payout!.status).toBe('held');
   });
 });

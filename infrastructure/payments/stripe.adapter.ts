@@ -32,6 +32,10 @@ export interface CheckoutSessionInput {
   guestEmail?: string | null;
   successUrl: string;
   cancelUrl: string;
+  /** Unix seconds. Must be 30 minutes to 24 hours from creation. */
+  expiresAt: number;
+  /** Stripe Tax: compute and collect tax at checkout. */
+  automaticTax?: boolean;
 }
 
 export interface StripePort {
@@ -72,9 +76,22 @@ export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
     // ---- Connect (spec §15, §15.1) -------------------------------------
 
     async createAccount(input) {
+      // Marketplace recipients: platform owns pricing and losses, Express
+      // dashboard, and only the transfers capability — requesting card_payments
+      // would force a much longer onboarding for no benefit here.
+      //
+      // Platform-owned loss liability must be accepted once in the Stripe
+      // dashboard (Settings → Connect → Platform profile) before this works in
+      // live mode.
       const account = await stripe.accounts.create({
-        type: 'express',
+        country: input.country,
         email: input.email,
+        business_type: 'individual',
+        controller: {
+          stripe_dashboard: { type: 'express' },
+          fees: { payer: 'application' },
+          losses: { payments: 'application' },
+        },
         capabilities: { transfers: { requested: true } },
       });
       return { id: account.id };
@@ -94,7 +111,9 @@ export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
       const account = await stripe.accounts.retrieve(accountId);
       return {
         chargesEnabled: Boolean(account.charges_enabled),
-        payoutsEnabled: Boolean(account.payouts_enabled),
+        // The marketplace guide checks the transfers capability, not the
+        // account's own payout enablement.
+        transfersEnabled: account.capabilities?.transfers === 'active',
       };
     },
 
@@ -122,6 +141,15 @@ export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
       return { id: transfer.id };
     },
 
+    async reverseTransfer(transferId, amountMinor, idempotencyKey) {
+      const reversal = await stripe.transfers.createReversal(
+        transferId,
+        { amount: amountMinor },
+        { idempotencyKey },
+      );
+      return { id: reversal.id };
+    },
+
     async createCheckoutSession(input) {
       const session = await stripe.checkout.sessions.create(
         {
@@ -139,9 +167,23 @@ export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
           customer_email: input.guestEmail ?? undefined,
           success_url: input.successUrl,
           cancel_url: input.cancelUrl,
+          // Expire with the hold, so the session cannot outlive the dates.
+          expires_at: input.expiresAt,
+          // Bookings read better with a "Book" button than "Pay".
+          submit_type: 'book',
+          ...(input.automaticTax
+            ? {
+                automatic_tax: { enabled: true },
+                billing_address_collection: 'required' as const,
+              }
+            : {}),
           // The booking id is the only trusted link back from the provider.
           metadata: { booking_id: input.bookingId },
-          payment_intent_data: { metadata: { booking_id: input.bookingId } },
+          payment_intent_data: {
+            metadata: { booking_id: input.bookingId },
+            // Associates the charge with the transfers made for it.
+            transfer_group: `booking:${input.bookingId}`,
+          },
         },
         // One session per booking attempt; retries reuse the same intent key.
         { idempotencyKey: `checkout:${input.bookingId}` },

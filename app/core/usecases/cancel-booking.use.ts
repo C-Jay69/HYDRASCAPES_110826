@@ -1,9 +1,10 @@
 import type { BookingGateway } from '@/infrastructure/db/booking.gateway';
 import type { PayoutGateway } from '@/infrastructure/db/payout.gateway';
-import type { Booking, UserRole } from '@/app/core/entities';
+import type { Booking, Payout, UserRole } from '@/app/core/entities';
 import { calculateRefund, type RefundTier } from '@/app/lib/bookings/cancellation';
 import { policyFromSnapshot } from '@/app/lib/bookings/policies';
 import { canTransition, isLiveStatus } from '@/app/lib/bookings/state';
+import { planReversals, reversalIdempotencyKey } from '@/app/lib/payments/release';
 import {
   BookingNotFoundError,
   BookingPermissionError,
@@ -17,6 +18,15 @@ export interface RefundPort {
     amountMinor: number,
     idempotencyKey: string,
   ) => Promise<{ id: string; status: string | null }>;
+}
+
+/** Claws money back from a payee when the payout already left the platform. */
+export interface ReversalPort {
+  reverseTransfer: (
+    transferId: string,
+    amountMinor: number,
+    idempotencyKey: string,
+  ) => Promise<{ id: string }>;
 }
 
 export interface CancelBookingInput {
@@ -47,6 +57,7 @@ export class CancelBookingUseCase {
     private readonly bookings: BookingGateway,
     private readonly payouts: PayoutGateway,
     private readonly refunds: RefundPort | null,
+    private readonly reversals: ReversalPort | null = null,
   ) {}
 
   async execute(input: CancelBookingInput): Promise<CancelBookingOutput> {
@@ -118,12 +129,15 @@ export class CancelBookingUseCase {
       throw new BookingValidationError('The booking changed while cancelling; please retry');
     }
 
-    // Void any payout that has not left the platform yet.
+    // Payouts that have not left the platform are simply voided; ones already
+    // transferred have to be clawed back, or the platform eats the refund.
     const payout = await this.payouts.getByBookingId(booking.id);
     if (payout && (payout.status === 'held' || payout.status === 'releasable')) {
       await this.payouts.updateStatus(payout.id, 'failed', {
         failure_reason: 'booking_cancelled',
       });
+    } else if (payout && payout.status === 'released' && refund.refundMinor > 0) {
+      await this.reverseReleasedPayout(booking.id, payout, refund.refundMinor);
     }
 
     let refundSent = false;
@@ -154,5 +168,62 @@ export class CancelBookingUseCase {
       refundSent,
       changed: true,
     };
+  }
+
+  /**
+   * Claws back the refund from payees whose transfers already went out.
+   *
+   * Allocation is proportional to what each slot received; the platform absorbs
+   * its own share and any rounding remainder. Idempotency keys are stable per
+   * booking+slot so a retry cannot reverse twice.
+   */
+  private async reverseReleasedPayout(
+    bookingId: string,
+    payout: Payout,
+    refundMinor: number,
+  ): Promise<void> {
+    const allocations = planReversals(payout, refundMinor);
+    if (allocations.length === 0) return;
+
+    if (!this.reversals) {
+      await this.payouts.updateStatus(payout.id, 'released', {
+        failure_reason: 'reversal_required',
+      });
+      return;
+    }
+
+    const references: Record<string, string> = {};
+    for (const [key, value] of Object.entries(payout.reversal_reference ?? {})) {
+      if (typeof value === 'string') references[key] = value;
+    }
+    let reversedOwner = Number(payout.reversed_owner_minor ?? 0);
+    let reversedHost = Number(payout.reversed_host_minor ?? 0);
+    let failure: string | null = null;
+
+    for (const allocation of allocations) {
+      try {
+        const reversal = await this.reversals.reverseTransfer(
+          allocation.transferId,
+          allocation.amountMinor,
+          reversalIdempotencyKey(bookingId, allocation.slot),
+        );
+        references[allocation.slot] = reversal.id;
+        if (allocation.slot === 'owner') reversedOwner += allocation.amountMinor;
+        else reversedHost += allocation.amountMinor;
+      } catch (error) {
+        console.error(
+          `Transfer reversal failed for booking ${bookingId} (${allocation.slot}):`,
+          error,
+        );
+        failure = 'reversal_failed';
+      }
+    }
+
+    await this.payouts.updateStatus(payout.id, 'released', {
+      reversed_owner_minor: reversedOwner,
+      reversed_host_minor: reversedHost,
+      reversal_reference: references,
+      failure_reason: failure,
+    });
   }
 }

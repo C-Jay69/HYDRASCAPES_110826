@@ -17,9 +17,12 @@ export const dynamic = 'force-dynamic';
  * created once and its id stored on the profile; links are re-issued on every
  * call because they expire.
  */
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const { user, profile } = await requireRole(['owner', 'host', 'admin']);
+
+    const body = (await request.json().catch(() => ({}))) as { country?: unknown };
+    const country = typeof body.country === 'string' ? body.country : undefined;
 
     if (!stripeIsConfigured()) {
       return NextResponse.json(
@@ -41,6 +44,7 @@ export async function POST() {
       profileId: user.id,
       returnUrl: returnTo,
       refreshUrl: `${returnTo}&refresh=1`,
+      country,
     });
 
     return NextResponse.json(result);

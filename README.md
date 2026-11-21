@@ -167,20 +167,39 @@ The flow is deliberately boring:
 4. Cancelling computes the refund from the booking's policy snapshot and asks Stripe to
    move that exact amount.
 
-Three rules worth knowing:
+Rules worth knowing:
 
 - **The database decides who wins a race.** `bookings` has a GiST exclusion constraint on
   `daterange(checkin, checkout, '[)')` covering live states *and unpaid holds*. Ten
   simultaneous attempts at the same dates produce exactly one reservation; the other nine
   fail with `23P01`. This is covered by `tests/concurrency.test.ts`.
-- **Holds expire.** An abandoned checkout would otherwise block dates forever, so
-  `expire_stale_pending_bookings()` cancels unpaid bookings older than 15 minutes. It is
-  called opportunistically by the booking API; schedule it later if you like.
+- **Holds expire, and the session expires first.** An abandoned checkout would otherwise
+  block dates forever, so `expire_stale_pending_bookings()` cancels unpaid bookings after
+  **40 minutes** (`app/lib/bookings/holds.ts`). The Checkout Session is created with a
+  **30-minute** lifetime, so it can never outlive the dates it is paying for. If payment
+  somehow arrives after cancellation (`checkout.session.completed` on a cancelled
+  booking), the guest is refunded in full automatically; `checkout.session.expired`
+  releases the dates.
 - **Cancellation terms are frozen at booking time.** Policy key, version and rules are
   snapshotted onto the row, so editing `CANCELLATION_POLICIES` never rewrites old bookings.
 
 Payouts are split per `platform_settings.revenue_split` (82 / 15 / 3), computed in integer
 minor units with the owner taking the remainder so the three amounts always reconcile.
+Two things come out **before** the split, because neither belongs to the payees:
+
+- **Tax** collected at checkout (Stripe Tax, `automatic_tax`). The charged amount and its
+  tax component are written back onto the booking by the webhook, and tax is excluded from
+  the settlement base.
+- **The estimated Stripe processing fee**, configured in
+  `platform_settings.processing_fees` (default 2.9% + 0.30). Without this the platform's
+  3% share was paying Stripe's fee out of its own pocket — at a loss on small bookings.
+
+Owners and hosts onboard from the Payouts page, choosing a country from the supported
+corridor (**US, Canada, UK, EEA, Switzerland**) — self-serve cross-border payouts do not
+reach anywhere else. Accounts are created with the `controller` object: platform-owned
+pricing and losses, Express dashboard, and only the `transfers` capability. Accepting
+platform-owned loss liability once in the Stripe dashboard is a prerequisite for live
+mode.
 
 **Payout release.** Owners and hosts onboard through Stripe Connect from the Payouts page
 (`POST /api/connect/onboard` creates the Express account once and stores its id on the
@@ -195,7 +214,11 @@ Each payout gets at most one transfer per slot, keyed `booking:<id>:owner` /
 `booking:<id>:host` and grouped by `booking:<id>`. Before retrying, the worker lists
 transfers in that group and reuses the existing one, so a crashed run cannot pay twice. A
 missing or unverified Connect account leaves the payout `releasable` with a reason instead
-of failing silently.
+of failing silently, and one failing payout no longer aborts the rest of the run.
+
+If a booking is cancelled **after** its payout was transferred, the refund is clawed back
+with `transfers.createReversal`, allocated across the slots in proportion to what each
+received. The platform covers its own share and any rounding remainder.
 
 **Lifecycle.** Trips move on by their dates — `confirmed → checked_in → checked_out →
 completed` — via a second worker:

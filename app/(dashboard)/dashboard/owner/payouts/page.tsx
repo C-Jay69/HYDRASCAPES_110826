@@ -25,6 +25,8 @@ export default async function OwnerPayoutsPage() {
 
   const payouts = (data as Payout[] | null) ?? [];
   const hasAccount = Boolean(profile.stripe_connect_id);
+  const country =
+    typeof profile.location_json?.country === 'string' ? profile.location_json.country : null;
 
   return (
     <div className="space-y-8">
@@ -45,7 +47,7 @@ export default async function OwnerPayoutsPage() {
                 : 'Connect a Stripe account so released payouts can be transferred to you.'}
             </p>
           </div>
-          <ConnectButton hasAccount={hasAccount} />
+          <ConnectButton hasAccount={hasAccount} country={country} />
         </div>
       </section>
 

@@ -1,9 +1,23 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Payout, PayoutState } from '@/app/core/entities';
 
-export type NewPayout = Omit<Payout, 'id' | 'created_at' | 'released_at' | 'failure_reason'> & {
+export type NewPayout = Omit<
+  Payout,
+  | 'id'
+  | 'created_at'
+  | 'released_at'
+  | 'failure_reason'
+  | 'processing_fee_minor'
+  | 'reversed_owner_minor'
+  | 'reversed_host_minor'
+  | 'reversal_reference'
+> & {
   released_at?: string | null;
   failure_reason?: string | null;
+  processing_fee_minor?: number;
+  reversed_owner_minor?: number;
+  reversed_host_minor?: number;
+  reversal_reference?: Record<string, unknown>;
 };
 
 export interface PayoutGateway {

@@ -37,8 +37,11 @@ export interface BookingGateway {
     to: BookingState,
     extra?: Partial<Booking>,
   ) => Promise<Booking | null>;
+  update: (id: string, updates: Partial<Booking>) => Promise<Booking | null>;
   setPaymentIntent: (id: string, paymentIntentId: string) => Promise<void>;
   revenueSplit: () => Promise<RevenueSplit>;
+  /** Configured processing-fee assumptions (`platform_settings.processing_fees`). */
+  processingFees: () => Promise<{ bps: number; fixedMinor: number }>;
 }
 
 const COLUMNS =
@@ -198,6 +201,21 @@ export class SupabaseBookingGateway implements BookingGateway {
     return (data as unknown as Booking | null) ?? null;
   }
 
+  async update(id: string, updates: Partial<Booking>): Promise<Booking | null> {
+    const { data, error } = await this.client
+      .from('bookings')
+      .update(updates)
+      .eq('id', id)
+      .select(COLUMNS)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Booking update failed for ${id}:`, error);
+      return null;
+    }
+    return (data as unknown as Booking | null) ?? null;
+  }
+
   async setPaymentIntent(id: string, paymentIntentId: string): Promise<void> {
     const { error } = await this.client
       .from('bookings')
@@ -207,6 +225,20 @@ export class SupabaseBookingGateway implements BookingGateway {
     if (error) {
       console.error(`Could not attach payment intent to booking ${id}:`, error);
     }
+  }
+
+  async processingFees(): Promise<{ bps: number; fixedMinor: number }> {
+    const { data } = await this.client
+      .from('platform_settings')
+      .select('value_json')
+      .eq('key', 'processing_fees')
+      .maybeSingle();
+
+    const value = data?.value_json as { bps?: unknown; fixed_minor?: unknown } | undefined;
+    if (!value || typeof value.bps !== 'number' || typeof value.fixed_minor !== 'number') {
+      return { bps: 290, fixedMinor: 30 };
+    }
+    return { bps: value.bps, fixedMinor: value.fixed_minor };
   }
 
   async revenueSplit(): Promise<RevenueSplit> {

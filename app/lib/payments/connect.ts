@@ -9,7 +9,8 @@ import type { TransferSlot } from '@/app/lib/payments/release';
 
 export interface AccountStatus {
   chargesEnabled: boolean;
-  payoutsEnabled: boolean;
+  /** Marketplace recipients receive transfers; this is the capability that matters. */
+  transfersEnabled: boolean;
 }
 
 export interface CreateTransferInput {
@@ -26,7 +27,7 @@ export interface CreateTransferInput {
 
 export interface ConnectPort {
   isConfigured: () => boolean;
-  createAccount: (input: { email: string }) => Promise<{ id: string }>;
+  createAccount: (input: { email: string; country: string }) => Promise<{ id: string }>;
   createAccountLink: (
     accountId: string,
     urls: { returnUrl: string; refreshUrl: string },
@@ -35,4 +36,10 @@ export interface ConnectPort {
   /** Existing transfer for this slot, if a previous attempt already moved money. */
   findTransfer: (transferGroup: string, slot: TransferSlot) => Promise<string | null>;
   createTransfer: (input: CreateTransferInput) => Promise<{ id: string }>;
+  /** Claws funds back from a connected account after a post-release refund. */
+  reverseTransfer: (
+    transferId: string,
+    amountMinor: number,
+    idempotencyKey: string,
+  ) => Promise<{ id: string }>;
 }

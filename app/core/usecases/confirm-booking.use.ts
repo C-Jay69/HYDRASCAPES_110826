@@ -8,6 +8,10 @@ import { BookingNotFoundError } from '@/app/lib/bookings/errors';
 export interface ConfirmBookingInput {
   bookingId: string;
   paymentIntentId?: string | null;
+  /** Amount actually charged (tax inclusive), when the provider reports it. */
+  paidTotalMinor?: number | null;
+  /** Tax component of the charge, when the provider computed it. */
+  taxMinor?: number | null;
 }
 
 export interface ConfirmBookingOutput {
@@ -41,11 +45,32 @@ export class ConfirmBookingUseCase {
 
     assertTransition(booking.status, 'confirmed');
 
+    // Automatic tax is computed by Stripe at checkout, so the charged amount can
+    // exceed what we quoted. Persist the real amounts before paying anyone.
+    const paidTotal = Math.trunc(input.paidTotalMinor ?? Number(booking.total_amount_minor));
+    const tax = Math.trunc(input.taxMinor ?? Number(booking.taxes_minor ?? 0));
+    if (Number.isSafeInteger(paidTotal) && paidTotal > Number(booking.total_amount_minor)) {
+      const updated = await this.bookings.update(booking.id, {
+        total_amount_minor: paidTotal,
+        taxes_minor: Math.max(0, Math.min(tax, paidTotal)),
+      });
+      if (updated) {
+        return this.finishConfirm(updated, input.paymentIntentId);
+      }
+    }
+
+    return this.finishConfirm(booking, input.paymentIntentId);
+  }
+
+  private async finishConfirm(
+    booking: Booking,
+    paymentIntentId?: string | null,
+  ): Promise<ConfirmBookingOutput> {
     const confirmed = await this.bookings.transition(
       booking.id,
       ['pending_payment', 'reserved'],
       'confirmed',
-      input.paymentIntentId ? { stripe_payment_intent_id: input.paymentIntentId } : {},
+      paymentIntentId ? { stripe_payment_intent_id: paymentIntentId } : {},
     );
 
     // Another writer won the race: re-read and treat as already handled.
@@ -67,10 +92,13 @@ export class ConfirmBookingUseCase {
     if (existing) return;
 
     const split = await this.bookings.revenueSplit();
+    const feeConfig = await this.bookings.processingFees();
     const settlement = computeSettlement({
       totalMinor: Number(booking.total_amount_minor),
+      taxMinor: Number(booking.taxes_minor ?? 0),
       split,
       hasHost: Boolean(booking.host_id),
+      feeConfig,
     });
 
     // Payouts become releasable after checkout + the configured delay.
@@ -82,7 +110,8 @@ export class ConfirmBookingUseCase {
         booking_id: booking.id,
         owner_id: booking.owner_id,
         host_id: booking.host_id,
-        settlement_base_minor: Number(booking.total_amount_minor),
+        settlement_base_minor: settlement.settlementBaseMinor,
+        processing_fee_minor: settlement.processingFeeMinor,
         owner_amount_minor: settlement.ownerAmountMinor,
         host_amount_minor: settlement.hostAmountMinor,
         platform_amount_minor: settlement.platformAmountMinor,

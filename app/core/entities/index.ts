@@ -177,7 +177,10 @@ export interface Payout {
   booking_id: string;
   owner_id: string;
   host_id: string | null;
+  /** Gross charge minus the estimated processing fee. */
   settlement_base_minor: number;
+  /** Estimated Stripe processing cost, absorbed before the split. */
+  processing_fee_minor: number;
   owner_amount_minor: number;
   host_amount_minor: number;
   platform_amount_minor: number;
@@ -186,6 +189,10 @@ export interface Payout {
   platform_pct_snapshot: number;
   currency: string;
   status: PayoutState;
+  /** Clawed back from each slot after a post-release refund. */
+  reversed_owner_minor: number;
+  reversed_host_minor: number;
+  reversal_reference: Record<string, unknown>;
   releasable_at: string;
   stripe_transfer_owner_id: string | null;
   stripe_transfer_host_id: string | null;
