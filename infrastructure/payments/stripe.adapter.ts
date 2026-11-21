@@ -107,6 +107,18 @@ export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
       return { url: link.url };
     },
 
+    async createAccountSession(accountId) {
+      const session = await stripe.accountSessions.create({
+        account: accountId,
+        components: {
+          account_onboarding: { enabled: true },
+          // Keeps accounts compliant as requirements change, inside our UI.
+          notification_banner: { enabled: true },
+        },
+      });
+      return { clientSecret: session.client_secret };
+    },
+
     async accountStatus(accountId): Promise<AccountStatus> {
       const account = await stripe.accounts.retrieve(accountId);
       return {
@@ -135,6 +147,7 @@ export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
           transfer_group: input.transferGroup,
           description: input.description,
           metadata: { slot: input.slot },
+          ...(input.sourceTransaction ? { source_transaction: input.sourceTransaction } : {}),
         },
         { idempotencyKey: input.idempotencyKey },
       );

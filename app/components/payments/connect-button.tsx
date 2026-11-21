@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { PAYEE_COUNTRIES } from '@/app/lib/payments/countries';
 
 interface ConnectButtonProps {
@@ -17,6 +18,7 @@ interface ConnectButtonProps {
  * use case only creates the account once.
  */
 export default function ConnectButton({ hasAccount, country }: ConnectButtonProps) {
+  const router = useRouter();
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCountry, setSelectedCountry] = useState(country ?? 'GB');
@@ -28,12 +30,19 @@ export default function ConnectButton({ hasAccount, country }: ConnectButtonProp
       const response = await fetch('/api/connect/onboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Only used the first time, when the account is created.
-        body: JSON.stringify({ country: selectedCountry }),
+        // Country is only used when the account is created; embedded tells the
+        // API not to mint a hosted link.
+        body: JSON.stringify({ country: selectedCountry, embedded: true }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? 'Could not start onboarding');
-      window.location.href = result.url;
+
+      if (result.url) {
+        window.location.href = result.url;
+        return;
+      }
+      // Embedded onboarding mounts on this page now that the account exists.
+      router.refresh();
     } catch (onboardError) {
       setError(onboardError instanceof Error ? onboardError.message : 'Could not start onboarding');
       setWorking(false);

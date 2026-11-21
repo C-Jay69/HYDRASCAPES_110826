@@ -12,6 +12,8 @@ export interface ConfirmBookingInput {
   paidTotalMinor?: number | null;
   /** Tax component of the charge, when the provider computed it. */
   taxMinor?: number | null;
+  /** Charge id, kept for source_transaction and dispute matching. */
+  chargeId?: string | null;
 }
 
 export interface ConfirmBookingOutput {
@@ -55,22 +57,26 @@ export class ConfirmBookingUseCase {
         taxes_minor: Math.max(0, Math.min(tax, paidTotal)),
       });
       if (updated) {
-        return this.finishConfirm(updated, input.paymentIntentId);
+        return this.finishConfirm(updated, input.paymentIntentId, input.chargeId ?? null);
       }
     }
 
-    return this.finishConfirm(booking, input.paymentIntentId);
+    return this.finishConfirm(booking, input.paymentIntentId, input.chargeId ?? null);
   }
 
   private async finishConfirm(
     booking: Booking,
     paymentIntentId?: string | null,
+    chargeId?: string | null,
   ): Promise<ConfirmBookingOutput> {
     const confirmed = await this.bookings.transition(
       booking.id,
       ['pending_payment', 'reserved'],
       'confirmed',
-      paymentIntentId ? { stripe_payment_intent_id: paymentIntentId } : {},
+      {
+        ...(paymentIntentId ? { stripe_payment_intent_id: paymentIntentId } : {}),
+        ...(chargeId ? { stripe_charge_id: chargeId } : {}),
+      },
     );
 
     // Another writer won the race: re-read and treat as already handled.

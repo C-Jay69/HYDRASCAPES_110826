@@ -18,6 +18,7 @@ export type NewBooking = Omit<
 export interface BookingGateway {
   getById: (id: string) => Promise<Booking | null>;
   findByPaymentIntent: (paymentIntentId: string) => Promise<Booking | null>;
+  findByChargeId: (chargeId: string) => Promise<Booking | null>;
   listByGuest: (guestId: string) => Promise<Booking[]>;
   listByProperty: (propertyId: string) => Promise<Booking[]>;
   /** Bookings in any of the given states, for the lifecycle scheduler. */
@@ -47,7 +48,8 @@ export interface BookingGateway {
 const COLUMNS =
   'id, property_id, guest_id, host_id, owner_id, checkin, checkout, nights, guests_count, ' +
   'per_night_rate_minor, nightly_subtotal_minor, cleaning_fee_minor, taxes_minor, ' +
-  'total_amount_minor, currency, status, stripe_payment_intent_id, cancellation_policy_key, ' +
+  'total_amount_minor, currency, status, stripe_payment_intent_id, stripe_charge_id, ' +
+  'cancellation_policy_key, ' +
   'cancellation_policy_version, cancellation_policy_snapshot, cancelled_at, cancelled_by, ' +
   'refund_amount_minor, guest_preferences, created_at, updated_at';
 
@@ -77,6 +79,20 @@ export class SupabaseBookingGateway implements BookingGateway {
 
     if (error) {
       console.error(`Booking findByPaymentIntent error for ${paymentIntentId}:`, error);
+      return null;
+    }
+    return (data as unknown as Booking | null) ?? null;
+  }
+
+  async findByChargeId(chargeId: string): Promise<Booking | null> {
+    const { data, error } = await this.client
+      .from('bookings')
+      .select(COLUMNS)
+      .eq('stripe_charge_id', chargeId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Booking findByChargeId error for ${chargeId}:`, error);
       return null;
     }
     return (data as unknown as Booking | null) ?? null;

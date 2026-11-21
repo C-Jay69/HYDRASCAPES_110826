@@ -9,11 +9,14 @@ export interface ConnectOnboardingInput {
   refreshUrl: string;
   /** ISO-2 payee country. Required the first time an account is created. */
   country?: string;
+  /** Skip the hosted link; the client mounts embedded onboarding instead. */
+  embedded?: boolean;
 }
 
 export interface ConnectOnboardingOutput {
   accountId: string;
-  url: string;
+  /** Hosted onboarding URL; null when embedded onboarding is used. */
+  url: string | null;
   created: boolean;
 }
 
@@ -63,6 +66,10 @@ export class ConnectOnboardingUseCase {
         location_json: { ...(profile.location_json ?? {}), country },
       });
       if (!saved) throw new HttpError(500, 'Could not save the payout account');
+    }
+
+    if (input.embedded) {
+      return { accountId, url: null, created };
     }
 
     const link = await this.connect.createAccountLink(accountId, {

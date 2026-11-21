@@ -145,6 +145,7 @@ const booking: Booking = {
   currency: 'AUD',
   status: 'confirmed',
   stripe_payment_intent_id: 'pi_secret',
+  stripe_charge_id: 'ch_secret',
   cancellation_policy_key: 'moderate',
   cancellation_policy_version: 1,
   cancellation_policy_snapshot: {},

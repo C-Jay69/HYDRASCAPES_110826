@@ -1,6 +1,7 @@
 import type { BookingGateway } from '@/infrastructure/db/booking.gateway';
 import type { ConfirmBookingUseCase } from '@/app/core/usecases/confirm-booking.use';
 import type { RefundPort } from '@/app/core/usecases/cancel-booking.use';
+import type { PayoutGateway } from '@/infrastructure/db/payout.gateway';
 import type { Booking } from '@/app/core/entities';
 
 /**
@@ -28,6 +29,7 @@ export class ApplyStripeEventUseCase {
     private readonly bookings: BookingGateway,
     private readonly confirmBooking: ConfirmBookingUseCase,
     private readonly refunds: RefundPort | null = null,
+    private readonly payouts: PayoutGateway | null = null,
   ) {}
 
   async execute(event: StripeEventLike): Promise<ApplyEventResult> {
@@ -116,6 +118,16 @@ export class ApplyStripeEventUseCase {
         return updated
           ? { outcome: 'handled', detail: `booking ${booking.id} marked refunded` }
           : ignored(`booking ${booking.id} is already ${booking.status}`);
+      }
+
+      // Disputes and early fraud warnings freeze the payout (plan review #12).
+      // Radar for Platforms must also be enabled in the dashboard; this is the
+      // application-side half of that control.
+      case 'charge.dispute.created':
+      case 'radar.early_fraud_warning.created': {
+        const reason =
+          event.type === 'charge.dispute.created' ? 'dispute_open' : 'early_fraud_warning';
+        return this.freezeForRisk(event.data.object, reason);
       }
 
       // Money movement we record but do not act on yet (payments/transfers).
@@ -213,6 +225,49 @@ export class ApplyStripeEventUseCase {
     };
   }
 
+  /**
+   * Stops money leaving when a charge is disputed or flagged. A payout that is
+   * still held is frozen; one already transferred cannot be frozen, so the
+   * reason is recorded for an operator.
+   */
+  private async freezeForRisk(
+    object: Record<string, unknown>,
+    reason: string,
+  ): Promise<ApplyEventResult> {
+    const chargeId = chargeIdOf(object);
+    const intentId = typeof object.payment_intent === 'string' ? object.payment_intent : null;
+
+    const booking =
+      (chargeId ? await this.bookings.findByChargeId(chargeId) : null) ??
+      (intentId ? await this.bookings.findByPaymentIntent(intentId) : null);
+
+    if (!booking) return ignored(`${reason} for an unknown booking`);
+    if (!this.payouts) return ignored(`${reason}: no payout store configured`);
+
+    const payout = await this.payouts.getByBookingId(booking.id);
+    if (!payout) return ignored(`${reason}: booking ${booking.id} has no payout`);
+
+    if (payout.status === 'held' || payout.status === 'releasable') {
+      const frozen = await this.payouts.updateStatus(payout.id, 'frozen', {
+        failure_reason: reason,
+      });
+      return frozen
+        ? { outcome: 'handled', detail: `payout ${payout.id} frozen (${reason})` }
+        : ignored(`payout ${payout.id} could not be frozen`);
+    }
+
+    if (payout.status === 'released') {
+      // The money already left; record it so an operator can act.
+      await this.payouts.updateStatus(payout.id, 'released', { failure_reason: reason });
+      return {
+        outcome: 'handled',
+        detail: `payout ${payout.id} was already released; ${reason} recorded`,
+      };
+    }
+
+    return ignored(`payout ${payout.id} is ${payout.status}`);
+  }
+
   private async bookingFor(object: Record<string, unknown>): Promise<Booking | null> {
     const bookingId = metadataBookingId(object);
     return bookingId ? this.bookings.getById(bookingId) : null;
@@ -234,6 +289,16 @@ function metadataBookingId(object: Record<string, unknown>): string | null {
   if (metadata && typeof metadata === 'object') {
     const id = (metadata as Record<string, unknown>).booking_id;
     if (typeof id === 'string' && id.length > 0) return id;
+  }
+  return null;
+}
+
+function chargeIdOf(object: Record<string, unknown>): string | null {
+  const charge = object.charge;
+  if (typeof charge === 'string') return charge;
+  if (charge && typeof charge === 'object') {
+    const id = (charge as Record<string, unknown>).id;
+    if (typeof id === 'string') return id;
   }
   return null;
 }

@@ -9,6 +9,11 @@ import {
   transferAmountMinor,
 } from '../app/lib/payments/release';
 import type { Payout } from '../app/core/entities';
+import {
+  isSupportedTransferCurrency,
+  needsConversion,
+  payeeCurrencyFor,
+} from '../app/lib/payments/currencies';
 import { requireInternalToken } from '../app/lib/internal-auth';
 import { HttpError } from '../app/lib/http-error';
 
@@ -155,5 +160,27 @@ describe('internal route authentication', () => {
   it('accepts the configured token', () => {
     process.env.INTERNAL_API_TOKEN = 'expected-token';
     expect(() => requireInternalToken(request('Bearer expected-token'))).not.toThrow();
+  });
+});
+
+
+describe('payout currencies', () => {
+  it('knows which currencies can be transferred', () => {
+    expect(isSupportedTransferCurrency('usd')).toBe(true);
+    expect(isSupportedTransferCurrency('GBP')).toBe(true);
+    expect(isSupportedTransferCurrency('XYZ')).toBe(false);
+  });
+
+  it('maps payee countries to their local currency', () => {
+    expect(payeeCurrencyFor('GB')).toBe('GBP');
+    expect(payeeCurrencyFor('DE')).toBe('EUR');
+    expect(payeeCurrencyFor('ca')).toBe('CAD');
+    expect(payeeCurrencyFor(null)).toBeNull();
+  });
+
+  it('flags only cross-currency payouts as conversions', () => {
+    expect(needsConversion('USD', 'GB')).toBe(true);
+    expect(needsConversion('GBP', 'GB')).toBe(false);
+    expect(needsConversion('USD', null)).toBe(false);
   });
 });

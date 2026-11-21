@@ -33,7 +33,13 @@ class FakeConnect implements ConnectPort {
   createdCountries: string[] = [];
   /** transfer groups whose createTransfer should throw (e.g. insufficient balance). */
   failGroups = new Set<string>();
-  transfers: { id: string; group: string; slot: TransferSlot; amount: number }[] = [];
+  transfers: {
+    id: string;
+    group: string;
+    slot: TransferSlot;
+    amount: number;
+    sourceTransaction?: string | null;
+  }[] = [];
   private counter = 0;
   // Unique across instances: transfer ids are unique in the payouts table.
   private readonly runId = Math.random().toString(36).slice(2, 8);
@@ -49,6 +55,10 @@ class FakeConnect implements ConnectPort {
 
   async createAccountLink() {
     return { url: 'https://connect.stripe.test/onboard' };
+  }
+
+  async createAccountSession() {
+    return { clientSecret: 'acs_test_secret' };
   }
 
   async accountStatus(accountId: string) {
@@ -83,6 +93,7 @@ class FakeConnect implements ConnectPort {
       group: input.transferGroup,
       slot: input.slot,
       amount: input.amountMinor,
+      sourceTransaction: input.sourceTransaction ?? null,
     });
     return { id };
   }
@@ -327,5 +338,71 @@ describe('release failure isolation', () => {
     const stuck = await payouts.getByBookingId(failing);
     expect(stuck?.status).toBe('releasable');
     expect(stuck?.failure_reason).toBe('release_failed');
+  });
+});
+
+
+describe('transfer source and currency', () => {
+  it('draws each transfer from the booking charge', async () => {
+    const bookingId = 'c7000000-0000-4000-8000-000000000001';
+    await makeConfirmedBooking(bookingId, { checkin: '2033-07-10', checkout: '2033-07-13' });
+    await service
+      .from('bookings')
+      .update({ stripe_charge_id: 'ch_source_1' })
+      .eq('id', bookingId);
+    await makeDue(bookingId);
+
+    const connect = new FakeConnect();
+    await new ReleasePayoutsUseCase(payouts, profiles, connect, bookings).execute();
+
+    const transfer = connect.transfers.find((t) => t.group === `booking:${bookingId}`);
+    expect(transfer?.sourceTransaction).toBe('ch_source_1');
+  });
+
+  it('skips a payout whose currency Stripe cannot transfer', async () => {
+    const bookingId = 'c7000000-0000-4000-8000-000000000002';
+    await makeConfirmedBooking(bookingId, {
+      checkin: '2033-08-10',
+      checkout: '2033-08-13',
+      currency: 'XYZ',
+    });
+    const payout = await makeDue(bookingId);
+
+    const connect = new FakeConnect();
+    const result = await new ReleasePayoutsUseCase(payouts, profiles, connect, bookings).execute();
+
+    expect(result.skipped.some((s) => s.payoutId === payout.id && s.reason === 'currency_unsupported')).toBe(true);
+    expect(result.released).not.toContain(payout.id);
+    const after = await payouts.getByBookingId(bookingId);
+    expect(after?.failure_reason).toBe('currency_unsupported');
+  });
+
+  it('reports where Stripe will convert currency', async () => {
+    const bookingId = 'c7000000-0000-4000-8000-000000000003';
+    await makeConfirmedBooking(bookingId, { checkin: '2033-09-10', checkout: '2033-09-13' });
+    await makeDue(bookingId);
+
+    const original = await service
+      .from('profiles')
+      .select('location_json')
+      .eq('id', OWNER)
+      .single();
+
+    await service
+      .from('profiles')
+      .update({ location_json: { country: 'GB' } })
+      .eq('id', OWNER);
+
+    try {
+      const connect = new FakeConnect();
+      const result = await new ReleasePayoutsUseCase(payouts, profiles, connect, bookings).execute();
+      // Booking currency is USD, payee is in the UK: Stripe converts to GBP.
+      expect(result.fxConversions.some((fx) => fx.from === 'USD' && fx.to === 'GBP')).toBe(true);
+    } finally {
+      await service
+        .from('profiles')
+        .update({ location_json: original.data?.location_json ?? {} })
+        .eq('id', OWNER);
+    }
   });
 });

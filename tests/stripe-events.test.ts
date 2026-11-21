@@ -38,6 +38,7 @@ function booking(overrides: Partial<Booking> = {}): Booking {
     currency: 'GBP',
     status: 'pending_payment',
     stripe_payment_intent_id: null,
+    stripe_charge_id: null,
     cancellation_policy_key: 'moderate',
     cancellation_policy_version: 1,
     cancellation_policy_snapshot: {},
@@ -51,9 +52,10 @@ function booking(overrides: Partial<Booking> = {}): Booking {
   };
 }
 
-function setup(current: Booking) {
+function setup(current: Booking, payout: { id: string; status: string } | null = null) {
   const getById = vi.fn().mockResolvedValue(current);
   const findByPaymentIntent = vi.fn().mockResolvedValue(current);
+  const findByChargeId = vi.fn().mockResolvedValue(current);
   const update = vi.fn().mockImplementation(async (_id: string, patch: Partial<Booking>) => ({
     ...current,
     ...patch,
@@ -67,6 +69,7 @@ function setup(current: Booking) {
   const bookings = {
     getById,
     findByPaymentIntent,
+    findByChargeId,
     update,
     transition,
     findConflicts: vi.fn(),
@@ -88,8 +91,22 @@ function setup(current: Booking) {
     refund: vi.fn().mockResolvedValue({ id: 're_1', status: 'succeeded' }),
   };
 
-  const useCase = new ApplyStripeEventUseCase(bookings, confirm, refunds);
-  return { useCase, bookings, confirm, refunds, getById, update, transition };
+  const payoutStore = {
+    getByBookingId: vi.fn().mockResolvedValue(payout),
+    updateStatus: vi.fn().mockImplementation(async (id: string, status: string, extra = {}) => ({
+      id,
+      status,
+      ...extra,
+    })),
+  };
+
+  const useCase = new ApplyStripeEventUseCase(
+    bookings,
+    confirm,
+    refunds,
+    payoutStore as never,
+  );
+  return { useCase, bookings, confirm, refunds, getById, update, transition, payoutStore };
 }
 
 const sessionCompleted = (bookingId: string, amountTotal: number, tax: number) => ({
@@ -231,5 +248,77 @@ describe('hold and session lifetimes', () => {
 
     expect(seconds).toBeGreaterThanOrEqual(30 * 60);
     expect(seconds).toBeLessThanOrEqual(24 * 60 * 60);
+  });
+});
+
+
+describe('risk events freeze payouts', () => {
+  it('freezes a held payout when a dispute opens', async () => {
+    const { useCase, payoutStore } = setup(
+      booking({ status: 'confirmed', stripe_charge_id: 'ch_1' }),
+      { id: 'pay_1', status: 'held' },
+    );
+
+    const result = await useCase.execute({
+      id: 'evt_d1',
+      type: 'charge.dispute.created',
+      data: { object: { id: 'dp_1', charge: 'ch_1', payment_intent: 'pi_1' } },
+    });
+
+    expect(result.outcome).toBe('handled');
+    expect(payoutStore.updateStatus).toHaveBeenCalledWith('pay_1', 'frozen', {
+      failure_reason: 'dispute_open',
+    });
+  });
+
+  it('freezes on an early fraud warning', async () => {
+    const { useCase, payoutStore } = setup(
+      booking({ status: 'confirmed', stripe_charge_id: 'ch_2' }),
+      { id: 'pay_2', status: 'releasable' },
+    );
+
+    const result = await useCase.execute({
+      id: 'evt_f1',
+      type: 'radar.early_fraud_warning.created',
+      data: { object: { id: 'efw_1', charge: 'ch_2' } },
+    });
+
+    expect(result.outcome).toBe('handled');
+    expect(payoutStore.updateStatus).toHaveBeenCalledWith('pay_2', 'frozen', {
+      failure_reason: 'early_fraud_warning',
+    });
+  });
+
+  it('records the reason when the payout already left', async () => {
+    const { useCase, payoutStore } = setup(
+      booking({ status: 'confirmed', stripe_charge_id: 'ch_3' }),
+      { id: 'pay_3', status: 'released' },
+    );
+
+    const result = await useCase.execute({
+      id: 'evt_d2',
+      type: 'charge.dispute.created',
+      data: { object: { id: 'dp_2', charge: 'ch_3' } },
+    });
+
+    expect(result.outcome).toBe('handled');
+    expect(result.detail).toMatch(/already released/);
+    expect(payoutStore.updateStatus).toHaveBeenCalledWith('pay_3', 'released', {
+      failure_reason: 'dispute_open',
+    });
+  });
+
+  it('ignores a dispute when the booking has no payout yet', async () => {
+    const { useCase, payoutStore } = setup(booking(), null);
+
+    const result = await useCase.execute({
+      id: 'evt_d3',
+      type: 'charge.dispute.created',
+      data: { object: { id: 'dp_3', charge: 'ch_3' } },
+    });
+
+    expect(result.outcome).toBe('ignored');
+    expect(result.detail).toMatch(/no payout/);
+    expect(payoutStore.updateStatus).not.toHaveBeenCalled();
   });
 });

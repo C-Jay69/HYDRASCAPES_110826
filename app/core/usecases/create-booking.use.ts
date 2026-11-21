@@ -90,6 +90,7 @@ export class CreateBookingUseCase {
       currency: quote.currency,
       status: 'pending_payment',
       stripe_payment_intent_id: null,
+      stripe_charge_id: null,
       cancellation_policy_key: policy.key,
       cancellation_policy_version: policy.version,
       cancellation_policy_snapshot: snapshotPolicy(policy),

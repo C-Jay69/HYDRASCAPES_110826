@@ -44,6 +44,10 @@ class FakeConnect implements ConnectPort {
     return { url: 'https://connect.stripe.test/onboard' };
   }
 
+  async createAccountSession() {
+    return { clientSecret: 'acs_test_secret' };
+  }
+
   async accountStatus() {
     return { chargesEnabled: true, transfersEnabled: true };
   }

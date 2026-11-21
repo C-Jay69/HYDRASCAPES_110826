@@ -160,6 +160,7 @@ export interface Booking {
   currency: string;
   status: BookingState;
   stripe_payment_intent_id: string | null;
+  stripe_charge_id: string | null;
   cancellation_policy_key: string;
   cancellation_policy_version: number;
   cancellation_policy_snapshot: Record<string, unknown>;

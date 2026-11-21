@@ -1,7 +1,13 @@
 import type { PayoutGateway } from '@/infrastructure/db/payout.gateway';
 import type { ProfileGateway } from '@/infrastructure/db/profile.gateway';
+import type { BookingGateway } from '@/infrastructure/db/booking.gateway';
 import type { ConnectPort } from '@/app/lib/payments/connect';
 import type { Payout } from '@/app/core/entities';
+import {
+  isSupportedTransferCurrency,
+  needsConversion,
+  payeeCurrencyFor,
+} from '@/app/lib/payments/currencies';
 import {
   isFullyTransferred,
   payoutIsDue,
@@ -28,6 +34,8 @@ export interface ReleasePayoutsOutput {
   skipped: ReleaseSkip[];
   /** Payouts that failed unexpectedly; the run continues past them. */
   errors: ReleaseSkip[];
+  /** Payouts where Stripe will convert currency when paying out. */
+  fxConversions: { payoutId: string; from: string; to: string }[];
 }
 
 /**
@@ -45,13 +53,21 @@ export class ReleasePayoutsUseCase {
     private readonly payouts: PayoutGateway,
     private readonly profiles: ProfileGateway,
     private readonly connect: ConnectPort,
+    private readonly bookings: BookingGateway | null = null,
   ) {}
 
   async execute(input: ReleasePayoutsInput = {}): Promise<ReleasePayoutsOutput> {
     const now = input.now ?? new Date();
 
     if (!this.connect.isConfigured()) {
-      return { configured: false, examined: 0, released: [], skipped: [], errors: [] };
+      return {
+        configured: false,
+        examined: 0,
+        released: [],
+        skipped: [],
+        errors: [],
+        fxConversions: [],
+      };
     }
 
     const due = (await this.payouts.listDue(now)).filter((payout) => payoutIsDue(payout, now));
@@ -59,13 +75,34 @@ export class ReleasePayoutsUseCase {
     const released: string[] = [];
     const skipped: ReleaseSkip[] = [];
     const errors: ReleaseSkip[] = [];
+    const fxConversions: ReleasePayoutsOutput['fxConversions'] = [];
 
     for (const payout of due) {
       // One bad payout (insufficient platform balance, a Stripe error) must not
       // stop every payout behind it in the queue.
       try {
+        if (!isSupportedTransferCurrency(payout.currency)) {
+          skipped.push({ payoutId: payout.id, reason: 'currency_unsupported' });
+          await this.payouts.updateStatus(payout.id, 'releasable', {
+            failure_reason: 'currency_unsupported',
+          });
+          continue;
+        }
+
         const working = await this.ensureReleasable(payout, now);
         if (!working) continue;
+
+        // Stripe converts if the payee's local currency differs; record it so
+        // operators can see where FX fees will apply.
+        const owner = await this.profiles.getById(working.owner_id);
+        const ownerCountry =
+          typeof owner?.location_json?.country === 'string'
+            ? owner.location_json.country
+            : null;
+        if (needsConversion(working.currency, ownerCountry)) {
+          const to = payeeCurrencyFor(ownerCountry);
+          if (to) fxConversions.push({ payoutId: working.id, from: working.currency, to });
+        }
 
         let blocked: string | null = null;
         let current: Payout = working;
@@ -105,7 +142,7 @@ export class ReleasePayoutsUseCase {
       }
     }
 
-    return { configured: true, examined: due.length, released, skipped, errors };
+    return { configured: true, examined: due.length, released, skipped, errors, fxConversions };
   }
 
   /** held -> releasable, once the release time has arrived. */
@@ -131,6 +168,14 @@ export class ReleasePayoutsUseCase {
     const status = await this.connect.accountStatus(profile.stripe_connect_id);
     if (!status.transfersEnabled) return { kind: 'blocked', reason: `${slot}_account_unverified` };
 
+    // Draw from the booking's charge when we have it, so Stripe waits for
+    // those funds rather than failing on the platform balance.
+    const booking = this.bookings ? await this.bookings.getById(payout.booking_id) : null;
+    const sourceTransaction =
+      booking?.stripe_charge_id && booking.currency === payout.currency
+        ? booking.stripe_charge_id
+        : null;
+
     const group = transferGroup(payout.booking_id);
 
     // Reconcile before creating: a previous run may have moved money already.
@@ -145,6 +190,7 @@ export class ReleasePayoutsUseCase {
         transferGroup: group,
         slot,
         description: `Hydrascapes booking ${payout.booking_id} (${slot})`,
+        sourceTransaction,
       });
       transferId = created.id;
     }

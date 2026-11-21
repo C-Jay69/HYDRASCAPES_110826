@@ -21,8 +21,12 @@ export async function POST(request: Request) {
   try {
     const { user, profile } = await requireRole(['owner', 'host', 'admin']);
 
-    const body = (await request.json().catch(() => ({}))) as { country?: unknown };
+    const body = (await request.json().catch(() => ({}))) as {
+      country?: unknown;
+      embedded?: unknown;
+    };
     const country = typeof body.country === 'string' ? body.country : undefined;
+    const embedded = body.embedded === true;
 
     if (!stripeIsConfigured()) {
       return NextResponse.json(
@@ -45,6 +49,7 @@ export async function POST(request: Request) {
       returnUrl: returnTo,
       refreshUrl: `${returnTo}&refresh=1`,
       country,
+      embedded,
     });
 
     return NextResponse.json(result);

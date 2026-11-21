@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       bookingGateway,
       new ConfirmBookingUseCase(bookingGateway, payoutGateway),
       adapter,
+      payoutGateway,
     );
 
     const result = await apply.execute({

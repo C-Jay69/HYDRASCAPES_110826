@@ -2,6 +2,8 @@ import { createClient } from '@/app/lib/supabase/server';
 import { requireDashboardRole } from '@/app/lib/dashboard-auth';
 import { formatCurrency } from '@/app/lib/money';
 import ConnectButton from '@/app/components/payments/connect-button';
+import EmbeddedOnboarding from '@/app/components/payments/embedded-onboarding';
+import { stripeIsConfigured } from '@/infrastructure/payments/stripe.adapter';
 import type { Payout } from '@/app/core/entities';
 
 const STATUS_STYLE: Record<string, string> = {
@@ -25,6 +27,8 @@ export default async function OwnerPayoutsPage() {
 
   const payouts = (data as Payout[] | null) ?? [];
   const hasAccount = Boolean(profile.stripe_connect_id);
+  const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  const embeddedReady = Boolean(hasAccount && stripeIsConfigured() && publishableKey);
   const country =
     typeof profile.location_json?.country === 'string' ? profile.location_json.country : null;
 
@@ -47,8 +51,14 @@ export default async function OwnerPayoutsPage() {
                 : 'Connect a Stripe account so released payouts can be transferred to you.'}
             </p>
           </div>
-          <ConnectButton hasAccount={hasAccount} country={country} />
+          {embeddedReady ? null : <ConnectButton hasAccount={hasAccount} country={country} />}
         </div>
+
+        {embeddedReady && publishableKey && (
+          <div className="mt-6">
+            <EmbeddedOnboarding publishableKey={publishableKey} />
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border border-divider bg-card p-6">

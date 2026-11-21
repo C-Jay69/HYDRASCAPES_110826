@@ -3,6 +3,7 @@ import { requireInternalToken } from '@/app/lib/internal-auth';
 import { errorResponse } from '@/app/lib/http-error';
 import { createServiceClient } from '@/app/lib/supabase/service';
 import { SupabasePayoutGateway } from '@/infrastructure/db/payout.gateway';
+import { SupabaseBookingGateway } from '@/infrastructure/db/booking.gateway';
 import { SupabaseProfileGateway } from '@/infrastructure/db/profile.gateway';
 import {
   createStripeAdapter,
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
       new SupabasePayoutGateway(service),
       new SupabaseProfileGateway(service),
       createStripeAdapter(service),
+      new SupabaseBookingGateway(service),
     );
 
     const result = await useCase.execute();

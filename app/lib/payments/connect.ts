@@ -23,6 +23,11 @@ export interface CreateTransferInput {
   transferGroup: string;
   slot: TransferSlot;
   description: string;
+  /**
+   * Charge the transfer draws from. Stripe holds the transfer until that
+   * charge's funds are available instead of failing on a short balance.
+   */
+  sourceTransaction?: string | null;
 }
 
 export interface ConnectPort {
@@ -32,6 +37,8 @@ export interface ConnectPort {
     accountId: string,
     urls: { returnUrl: string; refreshUrl: string },
   ) => Promise<{ url: string }>;
+  /** Client secret for Connect.js embedded components. */
+  createAccountSession: (accountId: string) => Promise<{ clientSecret: string }>;
   accountStatus: (accountId: string) => Promise<AccountStatus>;
   /** Existing transfer for this slot, if a previous attempt already moved money. */
   findTransfer: (transferGroup: string, slot: TransferSlot) => Promise<string | null>;

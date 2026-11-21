@@ -201,6 +201,17 @@ pricing and losses, Express dashboard, and only the `transfers` capability. Acce
 platform-owned loss liability once in the Stripe dashboard is a prerequisite for live
 mode.
 
+Onboarding is **embedded** (`@stripe/react-connect-js`): it runs inside our own page via
+an Account Session, with the notification banner so accounts can respond to requirement
+changes without an operator chasing them. If Connect.js is unavailable the hosted
+Account Link flow is still there as a fallback.
+
+**Currencies.** Listings are priced in local currencies; transfers are made in the
+booking's currency and Stripe converts when the payee's account currency differs. You do
+not convert amounts yourself — but you do pay Stripe's FX fee on those payouts, and a
+currency Stripe cannot move from your balance is skipped (`currency_unsupported`) rather
+than sent and failed.
+
 **Payout release.** Owners and hosts onboard through Stripe Connect from the Payouts page
 (`POST /api/connect/onboard` creates the Express account once and stores its id on the
 profile). A worker then pays whatever is due:
@@ -216,9 +227,19 @@ transfers in that group and reuses the existing one, so a crashed run cannot pay
 missing or unverified Connect account leaves the payout `releasable` with a reason instead
 of failing silently, and one failing payout no longer aborts the rest of the run.
 
+Transfers pass `source_transaction` (the booking's charge), so Stripe holds them until
+that charge's funds are available instead of failing on a short platform balance.
+
 If a booking is cancelled **after** its payout was transferred, the refund is clawed back
 with `transfers.createReversal`, allocated across the slots in proportion to what each
 received. The platform covers its own share and any rounding remainder.
+
+**Risk.** `charge.dispute.created` and `radar.early_fraud_warning.created` freeze the
+booking's payout, or record the reason if it already left. Enabling **Radar for Platforms**
+in the Stripe dashboard is the other half of that control. Subscribe the webhook to
+`checkout.session.completed`, `checkout.session.expired`, `payment_intent.succeeded`,
+`payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created` and
+`radar.early_fraud_warning.created`.
 
 **Lifecycle.** Trips move on by their dates — `confirmed → checked_in → checked_out →
 completed` — via a second worker:
