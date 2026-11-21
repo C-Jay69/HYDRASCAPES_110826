@@ -126,6 +126,71 @@ describe('double booking', () => {
   });
 });
 
+describe('owner availability blocks', () => {
+  it('reports a blocked range as unavailable and leaves free dates alone', async () => {
+    const { SupabaseBookingGateway } = await import('../infrastructure/db/booking.gateway');
+    const gateway = new SupabaseBookingGateway(service);
+    const propertyId = '20000000-0000-0000-0000-000000000012';
+    const blockId = 'a1000000-0000-4000-8000-000000000001';
+
+    await service.from('availability_blocks').delete().eq('id', blockId);
+    const insert = await service.from('availability_blocks').insert([
+      {
+        id: blockId,
+        property_id: propertyId,
+        start_date: '2032-05-01',
+        end_date: '2032-05-08',
+        reason: 'maintenance',
+      },
+    ]);
+    expect(insert.error).toBeNull();
+
+    try {
+      const overlapping = await gateway.blockedWindows(propertyId, '2032-05-04', '2032-05-06');
+      expect(overlapping).toHaveLength(1);
+      expect(overlapping[0].reason).toBe('maintenance');
+
+      // Half-open ranges: a stay ending on the block start does not overlap.
+      const adjacent = await gateway.blockedWindows(propertyId, '2032-04-28', '2032-05-01');
+      expect(adjacent).toHaveLength(0);
+
+      const after = await gateway.blockedWindows(propertyId, '2032-05-08', '2032-05-10');
+      expect(after).toHaveLength(0);
+    } finally {
+      await service.from('availability_blocks').delete().eq('id', blockId);
+    }
+  });
+
+  it('refuses overlapping blocks for the same property', async () => {
+    const propertyId = '20000000-0000-0000-0000-000000000012';
+    const first = await service.from('availability_blocks').insert([
+      {
+        property_id: propertyId,
+        start_date: '2032-06-01',
+        end_date: '2032-06-10',
+        reason: null,
+      },
+    ]);
+    expect(first.error).toBeNull();
+
+    const second = await service.from('availability_blocks').insert([
+      {
+        property_id: propertyId,
+        start_date: '2032-06-05',
+        end_date: '2032-06-12',
+        reason: null,
+      },
+    ]);
+    expect(second.error?.code).toBe('23P01');
+
+    await service
+      .from('availability_blocks')
+      .delete()
+      .eq('property_id', propertyId)
+      .gte('start_date', '2032-06-01');
+  });
+});
+
 describe('payment confirmation idempotency', () => {
   it('creates exactly one payout when the confirmation runs twice', async () => {
     const bookingId = 'b3000000-0000-4000-8000-000000000001';

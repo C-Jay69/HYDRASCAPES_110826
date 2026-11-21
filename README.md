@@ -18,7 +18,7 @@ feature list that reads like a brochure.
 | :--- | :--- | :--- |
 | 1 — Foundation | Auth, roles, RLS, dashboards | ✅ Done |
 | 2 — Property + vision | Property CRUD, private uploads, AI analysis, search | ✅ Done |
-| 3 — Bookings + payments | Availability, quotes, state machine, payouts, cancellation | 🟡 Done, except Stripe Connect transfers |
+| 3 — Bookings + payments | Availability, quotes, state machine, payouts, cancellation | ✅ Built (Stripe transfers unverified without keys) |
 | 4 — Trust | KYC, host applications, messaging, reviews | ⛔ Not built |
 | 5 — Pricing + disputes | Pricing engine, price calendar, dispute assessment | 🟡 Vision price hint only |
 | 6 — Admin + automation | Admin portal, n8n workflows, email | ⛔ Not built |
@@ -32,8 +32,12 @@ dashboard → cancel under the booking's own policy.
 
 **What does not work yet:** host identity verification, messaging, reviews, disputes,
 the full pricing engine, the admin portal and automation. Admin pages show counts only.
-Payments run through Stripe Checkout, but **Stripe Connect transfers to owners/hosts are
-not implemented** — payouts are recorded in the database and left `held`.
+
+Payouts are split, recorded and transferred through Stripe Connect, but **no real money
+has moved in this environment**: there are no Stripe keys here, so the transfer code is
+covered by tests with a fake Connect port rather than a live sandbox. Treat the Stripe
+paths (Checkout, refunds, transfers, onboarding) as unverified until they have been run
+against test keys.
 
 ### Signature verification, quickly
 
@@ -177,6 +181,34 @@ Three rules worth knowing:
 Payouts are split per `platform_settings.revenue_split` (82 / 15 / 3), computed in integer
 minor units with the owner taking the remainder so the three amounts always reconcile.
 
+**Payout release.** Owners and hosts onboard through Stripe Connect from the Payouts page
+(`POST /api/connect/onboard` creates the Express account once and stores its id on the
+profile). A worker then pays whatever is due:
+
+```bash
+curl -X POST localhost:3000/api/internal/payouts/release \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN"
+```
+
+Each payout gets at most one transfer per slot, keyed `booking:<id>:owner` /
+`booking:<id>:host` and grouped by `booking:<id>`. Before retrying, the worker lists
+transfers in that group and reuses the existing one, so a crashed run cannot pay twice. A
+missing or unverified Connect account leaves the payout `releasable` with a reason instead
+of failing silently.
+
+**Lifecycle.** Trips move on by their dates — `confirmed → checked_in → checked_out →
+completed` — via a second worker:
+
+```bash
+curl -X POST localhost:3000/api/internal/bookings/advance \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN"
+```
+
+Both endpoints are idempotent, so run them from cron/n8n as often as you like.
+
+**Availability.** Owners block dates on the property edit page; the quote endpoint and the
+booking conflict check both honour them, and the database rejects overlapping blocks.
+
 **Development without Stripe.** If `STRIPE_SECRET_KEY` is unset and you are not in
 production, the booking is confirmed immediately and the response and UI both say so
 ("Development mode: no payment was taken"). In production the hold is released and the
@@ -194,17 +226,19 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ### Tests
 
-Unit suites (`money`, `pricing`, `bookings`, `ai-validation`, `rate-limit`, `storage`) run
-anywhere, no infrastructure needed:
+Unit suites (`money`, `pricing`, `bookings`, `payouts`, `ai-validation`, `rate-limit`,
+`storage`) run anywhere, no infrastructure needed:
 
 ```bash
 npx vitest run tests/money.test.ts tests/pricing.test.ts tests/bookings.test.ts \
-               tests/ai-validation.test.ts tests/rate-limit.test.ts tests/storage.test.ts
+               tests/payouts.test.ts tests/ai-validation.test.ts \
+               tests/rate-limit.test.ts tests/storage.test.ts
 ```
 
-`tests/rls.test.ts` and `tests/concurrency.test.ts` are **integration** suites: they need
-a running local Supabase with seed data (`supabase start && supabase db reset`) and will
-fail without one. `npm test` runs everything.
+`tests/rls.test.ts`, `tests/concurrency.test.ts` and `tests/release.test.ts` are
+**integration** suites: they need a running local Supabase with seed data
+(`supabase start && supabase db reset`) and will fail without one. `npm test` runs
+everything. The release suite uses a fake Connect port, so it never calls Stripe.
 
 ---
 
@@ -217,14 +251,16 @@ app/
     usecases/        property create/analyze, booking create/confirm/cancel, stripe events
   lib/
     ai/              provider (transport) → structured (aiJson boundary) → vision (task)
-    bookings/        Quote, state machine, cancellation arithmetic, settlement
+    bookings/        Quote, state machine, lifecycle, cancellation, settlement
+    payments/        Payout release rules, Connect port (transfers, onboarding)
     pricing/         Deterministic refinements; money computed here, never by a model
     storage/         Upload validation, sharp re-encode, signed URL minting
     supabase/        Browser / server / service clients + session middleware
     money.ts         Integer minor-unit parsing and formatting
     authorization.ts requireUser / requireRole for route handlers
     rate-limit.ts    Postgres-backed, fixed-window
-  api/               Route handlers (properties, bookings, uploads, webhooks)
+  api/               Route handlers (properties, bookings, uploads, webhooks, connect,
+                     internal schedulers)
   property/[id]/     Public detail page
   book/[propertyId]/ Date selection, live quote, reserve
   bookings/[id]/     Trip detail, policy, cancellation

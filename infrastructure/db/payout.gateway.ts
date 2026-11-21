@@ -10,6 +10,8 @@ export interface PayoutGateway {
   getById: (id: string) => Promise<Payout | null>;
   getByBookingId: (bookingId: string) => Promise<Payout | null>;
   listByOwner: (ownerId: string) => Promise<Payout[]>;
+  /** Payouts that are due for transfer at `now` (held or releasable, not frozen). */
+  listDue: (now: Date) => Promise<Payout[]>;
   create: (payout: NewPayout) => Promise<Payout>;
   updateStatus: (id: string, status: PayoutState, extra?: Partial<Payout>) => Promise<Payout | null>;
 }
@@ -49,6 +51,22 @@ export class SupabasePayoutGateway implements PayoutGateway {
 
     if (error) {
       console.error(`Payout listByOwner error for ${ownerId}:`, error);
+      return [];
+    }
+    return (data as Payout[]) ?? [];
+  }
+
+  async listDue(now: Date): Promise<Payout[]> {
+    const { data, error } = await this.client
+      .from('payouts')
+      .select('*')
+      .in('status', ['held', 'releasable'])
+      .lte('releasable_at', now.toISOString())
+      .order('releasable_at', { ascending: true })
+      .limit(200);
+
+    if (error) {
+      console.error('Payout listDue error:', error);
       return [];
     }
     return (data as Payout[]) ?? [];

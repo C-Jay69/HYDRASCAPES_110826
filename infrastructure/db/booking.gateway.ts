@@ -20,6 +20,8 @@ export interface BookingGateway {
   findByPaymentIntent: (paymentIntentId: string) => Promise<Booking | null>;
   listByGuest: (guestId: string) => Promise<Booking[]>;
   listByProperty: (propertyId: string) => Promise<Booking[]>;
+  /** Bookings in any of the given states, for the lifecycle scheduler. */
+  listByStatuses: (statuses: BookingState[]) => Promise<Booking[]>;
   /** Live bookings overlapping the half-open range [checkin, checkout). */
   findConflicts: (propertyId: string, checkin: string, checkout: string) => Promise<Booking[]>;
   /** Owner-blocked windows overlapping the range. */
@@ -99,6 +101,23 @@ export class SupabaseBookingGateway implements BookingGateway {
 
     if (error) {
       console.error(`Booking listByProperty error for ${propertyId}:`, error);
+      return [];
+    }
+    return (data as unknown as Booking[]) ?? [];
+  }
+
+  async listByStatuses(statuses: BookingState[]): Promise<Booking[]> {
+    if (statuses.length === 0) return [];
+    const { data, error } = await this.client
+      .from('bookings')
+      .select(COLUMNS)
+      .in('status', statuses)
+      .lte('checkin', new Date().toISOString().slice(0, 10))
+      .order('checkin', { ascending: true })
+      .limit(500);
+
+    if (error) {
+      console.error('Booking listByStatuses error:', error);
       return [];
     }
     return (data as unknown as Booking[]) ?? [];

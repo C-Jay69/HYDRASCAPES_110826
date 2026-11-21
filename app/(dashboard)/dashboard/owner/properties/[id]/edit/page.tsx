@@ -3,6 +3,7 @@ import { requireDashboardRole } from '@/app/lib/dashboard-auth';
 import { createClient } from '@/app/lib/supabase/server';
 import { createSignedUrlResolver } from '@/app/lib/storage/signed-urls';
 import PropertyForm from '@/app/components/properties/property-form';
+import AvailabilityEditor from '@/app/components/properties/availability-editor';
 import type { Property } from '@/app/core/entities';
 
 export const metadata = { title: 'Edit property' };
@@ -39,8 +40,20 @@ export default async function EditPropertyPage({
     country?: string;
   };
 
+  const { data: blockRows } = await supabase
+    .from('availability_blocks')
+    .select('start_date, end_date, reason')
+    .eq('property_id', id)
+    .order('start_date');
+
+  const blocks = (blockRows ?? []).map((row) => ({
+    start: row.start_date as string,
+    end: row.end_date as string,
+    reason: (row.reason as string | null) ?? null,
+  }));
+
   return (
-    <div className="mx-auto max-w-2xl py-12">
+    <div className="mx-auto max-w-2xl space-y-6 py-12">
       <div className="rounded-2xl border border-divider bg-card p-8">
         <h1 className="mb-2 text-2xl font-semibold tracking-tight">Edit property</h1>
         <p className="mb-6 text-sm text-foreground-muted">
@@ -66,6 +79,8 @@ export default async function EditPropertyPage({
           canDelete={isOwner || isAdmin}
         />
       </div>
+
+      <AvailabilityEditor propertyId={property.id} initialBlocks={blocks} />
     </div>
   );
 }

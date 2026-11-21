@@ -8,6 +8,12 @@
 
 import Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type {
+  AccountStatus,
+  ConnectPort,
+  CreateTransferInput,
+} from '@/app/lib/payments/connect';
+import type { TransferSlot } from '@/app/lib/payments/release';
 
 const PROVIDER = 'stripe';
 const UNIQUE_VIOLATION = '23505';
@@ -47,11 +53,13 @@ export interface StripePort {
   markEventFailed: (eventId: string, errorCode: string) => Promise<void>;
 }
 
+export interface StripeAdapter extends StripePort, ConnectPort {}
+
 export function stripeIsConfigured(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY);
 }
 
-export function createStripeAdapter(supabase: SupabaseClient): StripePort {
+export function createStripeAdapter(supabase: SupabaseClient): StripeAdapter {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) throw new Error('STRIPE_SECRET_KEY is not configured');
   const stripe = new Stripe(secretKey);
@@ -60,6 +68,59 @@ export function createStripeAdapter(supabase: SupabaseClient): StripePort {
 
   return {
     isConfigured: () => true,
+
+    // ---- Connect (spec §15, §15.1) -------------------------------------
+
+    async createAccount(input) {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        email: input.email,
+        capabilities: { transfers: { requested: true } },
+      });
+      return { id: account.id };
+    },
+
+    async createAccountLink(accountId, urls) {
+      const link = await stripe.accountLinks.create({
+        account: accountId,
+        type: 'account_onboarding',
+        return_url: urls.returnUrl,
+        refresh_url: urls.refreshUrl,
+      });
+      return { url: link.url };
+    },
+
+    async accountStatus(accountId): Promise<AccountStatus> {
+      const account = await stripe.accounts.retrieve(accountId);
+      return {
+        chargesEnabled: Boolean(account.charges_enabled),
+        payoutsEnabled: Boolean(account.payouts_enabled),
+      };
+    },
+
+    async findTransfer(group, slot) {
+      // Reconcile an uncertain prior attempt instead of repeating it.
+      const transfers = await stripe.transfers.list({ transfer_group: group, limit: 10 });
+      const match = transfers.data.find(
+        (transfer) => (transfer.metadata?.slot as TransferSlot | undefined) === slot,
+      );
+      return match?.id ?? null;
+    },
+
+    async createTransfer(input: CreateTransferInput) {
+      const transfer = await stripe.transfers.create(
+        {
+          amount: input.amountMinor,
+          currency: input.currency.toLowerCase(),
+          destination: input.accountId,
+          transfer_group: input.transferGroup,
+          description: input.description,
+          metadata: { slot: input.slot },
+        },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      return { id: transfer.id };
+    },
 
     async createCheckoutSession(input) {
       const session = await stripe.checkout.sessions.create(
