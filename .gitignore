@@ -31,3 +31,7 @@ supabase/.temp/
 
 # typescript
 *.tsbuildinfo
+
+# Stripe Connect quickstart download (Ruby/Vite scaffold, not part of this app)
+stripe-sample-code/
+stripe-sample-code.zip
